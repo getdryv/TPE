@@ -4,12 +4,9 @@
   <meta charset="UTF-8" />
   <title>Paiement avec TPE GETdryv</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Stripe Terminal SDK -->
   <script src="https://js.stripe.com/terminal/v1/"></script>
-  <!-- Police & confetti (facultatif) -->
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
-
   <style>
     :root { --brand:#635bff; --bg:#f6f9fc; }
     * { box-sizing: border-box; }
@@ -23,35 +20,23 @@
       padding: 16px;
     }
     .container {
-      background: #fff;
-      border-radius: 12px;
-      padding: 28px;
-      box-shadow: 0 10px 20px rgba(0,0,0,.08);
-      width: 100%;
-      max-width: 440px;
+      background: #fff; border-radius: 12px; padding: 28px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.08); width: 100%; max-width: 440px;
     }
     h2 { color: var(--brand); margin: 0 0 16px; text-align: center; }
     .row { display: grid; gap: 10px; }
     input, select, button {
-      font-family: inherit;
-      font-size: 16px;
-      padding: 12px 14px;
-      border-radius: 8px;
-      border: 1px solid #d7dbe7;
-      width: 100%;
+      font-family: inherit; font-size: 16px; padding: 12px 14px; border-radius: 8px;
+      border: 1px solid #d7dbe7; width: 100%;
     }
     input { background:#edf2ff; }
-    button {
-      cursor: pointer; font-weight: 600; border: none;
-      transition: transform .08s ease;
-    }
+    button { cursor: pointer; font-weight: 600; border: none; transition: transform .08s ease; }
     button:active { transform: translateY(1px); }
     .main-btn { background: var(--brand); color: #fff; }
-    .secondary-btn {
-      background:#fff; color: var(--brand); border:2px solid var(--brand);
-    }
+    .secondary-btn { background:#fff; color: var(--brand); border:2px solid var(--brand); }
     #status { margin-top: 14px; font-weight: 600; min-height: 24px; }
     .muted { color:#6b7280; font-weight: 500; }
+    .hidden { display:none; }
   </style>
 </head>
 <body>
@@ -61,7 +46,7 @@
     <div class="row" style="margin-bottom:12px">
       <label class="muted" for="readerSelect">Lecteur détecté</label>
       <select id="readerSelect"></select>
-      <button id="connectBtn" class="secondary-btn">Connecter le lecteur</button>
+      <button id="connectBtn" class="secondary-btn hidden">Connecter le lecteur</button>
     </div>
 
     <form id="paymentForm" class="row" autocomplete="off">
@@ -88,20 +73,24 @@
     let discovered = [];
     let connectedReader = null;
 
+    const PREFERRED_READER_KEY = 'preferred_reader_serial';
+
     const write = (msg) => {
       statusEl.innerHTML = msg;
       console.log('[TPE]', msg.replace(/<[^>]+>/g, ''));
     };
 
-    // 1) Init Terminal + récupération du connection_token depuis ton backend
+    async function fetchConnectionToken() {
+      const r = await fetch('/connection-token', { method: 'POST' });
+      if (!r.ok) throw new Error('Impossible d’obtenir un connection_token');
+      const { secret } = await r.json();
+      return secret;
+    }
+
+    // 1) Init Terminal + découverte + AUTO-CONNEXION
     async function initTerminal() {
       terminal = StripeTerminal.create({
-        onFetchConnectionToken: async () => {
-          const r = await fetch('/connection-token', { method: 'POST' });
-          if (!r.ok) throw new Error('Impossible d’obtenir un connection_token');
-          const { secret } = await r.json();
-          return secret;
-        },
+        onFetchConnectionToken: fetchConnectionToken,
         onUnexpectedReaderDisconnect: () => {
           connectedReader = null;
           payBtn.disabled = true;
@@ -110,47 +99,77 @@
       });
 
       write('🔎 Recherche des lecteurs (internet)…');
-      // En prod avec WisePOS E/lecteurs réseau
       const res = await terminal.discoverReaders({
         simulated: false,
         discoveryMethod: 'internet'
       });
       if (res.error) return write('❌ Erreur découverte lecteur : ' + res.error.message);
-      discovered = res.discoveredReaders || [];
 
+      discovered = res.discoveredReaders || [];
       if (!discovered.length) {
-        return write('❌ Aucun lecteur trouvé. Vérifie : clés LIVE, lecteur enregistré en LIVE, Location assignée et réseau du lecteur.');
+        return write('❌ Aucun lecteur trouvé. Vérifie : clés LIVE, lecteur enregistré LIVE, Location assignée et réseau du lecteur.');
       }
 
-      // Remplit la liste déroulante
+      // Remplir la liste pour info/choix manuel si besoin
       readerSelect.innerHTML = discovered
         .map((r, i) => {
-          const label = r.label || r.device_type || r.serial_number || ('Reader #' + (i+1));
+          const label = r.label || r.device_type || r.serial_number || ('Reader #'+(i+1));
           return `<option value="${i}">${label}</option>`;
-        })
-        .join('');
-      write('✅ Lecteur(s) trouvé(s). Sélectionne et clique “Connecter le lecteur”.');
+        }).join('');
+
+      // AUTO-CONNEXION :
+      // 1) si un lecteur préféré est mémorisé, tente celui-là
+      const preferredSerial = localStorage.getItem(PREFERRED_READER_KEY);
+      let target = discovered.find(r => r.serial_number === preferredSerial);
+
+      // 2) sinon, si un seul lecteur → prends-le
+      if (!target && discovered.length === 1) target = discovered[0];
+
+      // 3) sinon, prends celui sélectionné dans la liste
+      if (!target) target = discovered[Number(readerSelect.value || 0)];
+
+      // si on a un candidat, on tente direct la connexion
+      if (target) {
+        write('🔗 Connexion automatique au lecteur…');
+        const conn = await terminal.connectReader(target);
+        if (conn.error) {
+          // si échec, on affiche le bouton pour connexion manuelle
+          connectBtn.classList.remove('hidden');
+          return write('❌ Erreur connexion auto : ' + conn.error.message + '<br>Essayez “Connecter le lecteur”.');
+        }
+        onReaderConnected(conn.reader);
+      } else {
+        // pas de cible claire → laisse le bouton manuel
+        connectBtn.classList.remove('hidden');
+        write('ℹ️ Sélectionnez un lecteur puis cliquez “Connecter le lecteur”.');
+      }
     }
 
-    // 2) Connexion au lecteur choisi
+    function onReaderConnected(reader) {
+      connectedReader = reader;
+      payBtn.disabled = false;
+      connectBtn.classList.add('hidden');
+      // mémoriser ce lecteur pour la prochaine fois
+      if (reader.serial_number) {
+        localStorage.setItem(PREFERRED_READER_KEY, reader.serial_number);
+      }
+      write('✅ Lecteur connecté : <b>' + (reader.label || reader.serial_number) + '</b>');
+    }
+
+    // Connexion manuelle (fallback)
     connectBtn.addEventListener('click', async () => {
-      if (!terminal) return write('❌ Terminal non initialisé.');
       const idx = Number(readerSelect.value || 0);
       const reader = discovered[idx];
       if (!reader) return write('❌ Aucun lecteur sélectionné.');
-
       write('🔗 Connexion au lecteur…');
       const conn = await terminal.connectReader(reader);
       if (conn.error) return write('❌ Erreur connexion : ' + conn.error.message);
-
-      connectedReader = conn.reader;
-      payBtn.disabled = false;
-      write('✅ Lecteur connecté : <b>' + (connectedReader.label || connectedReader.serial_number) + '</b>');
+      onReaderConnected(conn.reader);
     });
 
     resetBtn.addEventListener('click', () => location.reload());
 
-    // 3) Soumission du paiement
+    // 3) Paiement
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!connectedReader) return write('❌ Connecte un lecteur d’abord.');
@@ -189,7 +208,7 @@
       const confirm = await terminal.processPayment(collect.paymentIntent);
       if (confirm.error) return write('❌ Erreur confirmation : ' + confirm.error.message);
 
-      // 3.4 Capture côté serveur (car capture_method: manual)
+      // 3.4 Capture côté serveur (capture_method: manual)
       write('🔒 Capture du paiement…');
       const r2 = await fetch('/capture-payment', {
         method: 'POST',
