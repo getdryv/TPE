@@ -4,9 +4,12 @@
   <meta charset="UTF-8" />
   <title>Paiement avec TPE GETdryv</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Stripe Terminal SDK -->
   <script src="https://js.stripe.com/terminal/v1/"></script>
+  <!-- Police & confetti (facultatif) -->
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+
   <style>
     :root { --brand:#635bff; --bg:#f6f9fc; }
     * { box-sizing: border-box; }
@@ -66,7 +69,7 @@
       <input type="text" name="lastName"  placeholder="Nom" required />
       <input type="email" name="email"     placeholder="Email" required />
       <input type="text"  name="montant"   placeholder="Montant (€) — ex: 12,50" inputmode="decimal" required />
-      <button type="submit" class="main-btn">Envoyer au TPE</button>
+      <button id="payBtn" type="submit" class="main-btn" disabled>Envoyer au TPE</button>
     </form>
 
     <button id="resetBtn" class="secondary-btn" style="margin-top:10px">Nouvelle transaction</button>
@@ -79,6 +82,7 @@
     const readerSelect = document.getElementById('readerSelect');
     const connectBtn = document.getElementById('connectBtn');
     const resetBtn = document.getElementById('resetBtn');
+    const payBtn = document.getElementById('payBtn');
 
     let terminal;
     let discovered = [];
@@ -100,18 +104,23 @@
         },
         onUnexpectedReaderDisconnect: () => {
           connectedReader = null;
+          payBtn.disabled = true;
           write('❌ Lecteur déconnecté.');
         }
       });
 
-      write('🔎 Recherche des lecteurs…');
-      // Pour WisePOS E: discovery via le réseau/internet.
-      // Laisse sans param pour laisser Stripe choisir selon le contexte.
-      const res = await terminal.discoverReaders({ simulated: false });
+      write('🔎 Recherche des lecteurs (internet)…');
+      // En prod avec WisePOS E/lecteurs réseau
+      const res = await terminal.discoverReaders({
+        simulated: false,
+        discoveryMethod: 'internet'
+      });
       if (res.error) return write('❌ Erreur découverte lecteur : ' + res.error.message);
       discovered = res.discoveredReaders || [];
 
-      if (!discovered.length) return write('❌ Aucun lecteur trouvé. Vérifie Wi-Fi/Ethernet & Location.');
+      if (!discovered.length) {
+        return write('❌ Aucun lecteur trouvé. Vérifie : clés LIVE, lecteur enregistré en LIVE, Location assignée et réseau du lecteur.');
+      }
 
       // Remplit la liste déroulante
       readerSelect.innerHTML = discovered
@@ -135,6 +144,7 @@
       if (conn.error) return write('❌ Erreur connexion : ' + conn.error.message);
 
       connectedReader = conn.reader;
+      payBtn.disabled = false;
       write('✅ Lecteur connecté : <b>' + (connectedReader.label || connectedReader.serial_number) + '</b>');
     });
 
@@ -146,7 +156,6 @@
       if (!connectedReader) return write('❌ Connecte un lecteur d’abord.');
 
       write('⏳ Envoi du paiement…');
-
       const fd = Object.fromEntries(new FormData(form).entries());
 
       // Accepter virgule ou point
