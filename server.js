@@ -24,9 +24,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // IMPORTANT : ne PAS parser /webhook/stripe avec express.json()
 // On applique express.json() à toutes les autres routes uniquement.
 app.use((req, res, next) => {
-  if (req.originalUrl === '/webhook/stripe') {
-    return next();
-  }
+  if (req.originalUrl === '/webhook/stripe') return next();
   return express.json()(req, res, next);
 });
 
@@ -39,10 +37,15 @@ app.get('/', (_req, res) => {
 });
 
 // ----- Stripe Terminal -----
-// 1) Connection token (app front → serveur → Stripe)
+// 1) Connection token (scopé sur une Location si fournie)
 app.post('/connection-token', async (_req, res) => {
   try {
-    const token = await stripe.terminal.connectionTokens.create();
+    const params = {};
+    if (process.env.STRIPE_TERMINAL_LOCATION) {
+      // tml_xxx (ID de Location LIVE recommandé pour la prod)
+      params.location = process.env.STRIPE_TERMINAL_LOCATION;
+    }
+    const token = await stripe.terminal.connectionTokens.create(params);
     res.json({ secret: token.secret });
   } catch (err) {
     console.error('connection-token error:', err);
@@ -112,9 +115,7 @@ app.post('/webhook/stripe', bodyParser.raw({ type: 'application/json' }), (req, 
 
   let event;
   try {
-    if (!webhookSecret) {
-      throw new Error('STRIPE_WEBHOOK_SECRET manquant');
-    }
+    if (!webhookSecret) throw new Error('STRIPE_WEBHOOK_SECRET manquant');
     event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
   } catch (err) {
     console.error('⚠️ Webhook signature verification failed:', err.message);
@@ -126,7 +127,6 @@ app.post('/webhook/stripe', bodyParser.raw({ type: 'application/json' }), (req, 
       case 'payment_intent.succeeded': {
         const pi = event.data.object;
         console.log(`✅ payment_intent.succeeded: ${pi.id} — montant=${pi.amount} ${pi.currency}`);
-        // TODO: marquer la commande payée, envoyer un reçu, etc.
         break;
       }
       case 'payment_intent.payment_failed': {
@@ -150,7 +150,6 @@ app.post('/webhook/stripe', bodyParser.raw({ type: 'application/json' }), (req, 
     }
   } catch (err) {
     console.error('Webhook handler error:', err);
-    // On renvoie quand même 200 pour éviter les retries infinis si c'est un souci métier
   }
 
   res.json({ received: true });
