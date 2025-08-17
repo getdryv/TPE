@@ -1,182 +1,201 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Paiement avec TPE GETdryv</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://js.stripe.com/terminal/v1/"></script>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
   <style>
+    :root { --brand:#635bff; --bg:#f6f9fc; }
+    * { box-sizing: border-box; }
     body {
       font-family: 'Montserrat', sans-serif;
-      background-color: #f6f9fc;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
+      background-color: var(--bg);
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
       margin: 0;
+      padding: 16px;
     }
     .container {
       background: #fff;
       border-radius: 12px;
-      padding: 30px;
-      box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-      max-width: 400px;
+      padding: 28px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.08);
       width: 100%;
-      text-align: center;
+      max-width: 440px;
     }
-    h2 {
-      color: #635bff;
-      margin-bottom: 20px;
-    }
-    input {
+    h2 { color: var(--brand); margin: 0 0 16px; text-align: center; }
+    .row { display: grid; gap: 10px; }
+    input, select, button {
       font-family: inherit;
-      width: 100%;
-      padding: 12px;
-      margin-top: 10px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
       font-size: 16px;
-      background-color: #edf2ff;
+      padding: 12px 14px;
+      border-radius: 8px;
+      border: 1px solid #d7dbe7;
+      width: 100%;
     }
+    input { background:#edf2ff; }
     button {
-      font-family: inherit;
-      padding: 12px;
-      margin-top: 15px;
-      border-radius: 6px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: 0.2s ease;
+      cursor: pointer; font-weight: 600; border: none;
+      transition: transform .08s ease;
     }
-    .main-btn {
-      background-color: #635bff;
-      color: white;
-      border: none;
-      width: 100%;
-    }
+    button:active { transform: translateY(1px); }
+    .main-btn { background: var(--brand); color: #fff; }
     .secondary-btn {
-      background-color: white;
-      color: #635bff;
-      border: 2px solid #635bff;
-      width: 100%;
-      margin-top: 10px;
+      background:#fff; color: var(--brand); border:2px solid var(--brand);
     }
-    #result {
-      margin-top: 15px;
-      font-weight: bold;
-    }
+    #status { margin-top: 14px; font-weight: 600; min-height: 24px; }
+    .muted { color:#6b7280; font-weight: 500; }
   </style>
 </head>
 <body>
   <div class="container">
     <h2>Paiement avec TPE <strong>GETdryv</strong></h2>
-    <form id="payment-form">
-      <input type="text" name="firstName" placeholder="Prénom" required />
-      <input type="text" name="lastName" placeholder="Nom" required />
-      <input type="email" name="email" placeholder="Email" required />
-      <input type="number" name="montant" placeholder="Montant (€)" step="0.01" min="0.01" required />
 
+    <div class="row" style="margin-bottom:12px">
+      <label class="muted" for="readerSelect">Lecteur détecté</label>
+      <select id="readerSelect"></select>
+      <button id="connectBtn" class="secondary-btn">Connecter le lecteur</button>
+    </div>
+
+    <form id="paymentForm" class="row" autocomplete="off">
+      <input type="text" name="firstName" placeholder="Prénom" required />
+      <input type="text" name="lastName"  placeholder="Nom" required />
+      <input type="email" name="email"     placeholder="Email" required />
+      <input type="text"  name="montant"   placeholder="Montant (€) — ex: 12,50" inputmode="decimal" required />
       <button type="submit" class="main-btn">Envoyer au TPE</button>
     </form>
-    <button onclick="window.location.reload()" class="secondary-btn">Nouvelle transaction</button>
-    <div id="result"></div>
+
+    <button id="resetBtn" class="secondary-btn" style="margin-top:10px">Nouvelle transaction</button>
+    <div id="status" class="muted"></div>
   </div>
 
   <script>
-    const form = document.getElementById("payment-form");
-    const result = document.getElementById("result");
+    const statusEl = document.getElementById('status');
+    const form = document.getElementById('paymentForm');
+    const readerSelect = document.getElementById('readerSelect');
+    const connectBtn = document.getElementById('connectBtn');
+    const resetBtn = document.getElementById('resetBtn');
 
     let terminal;
-    let cancelCollect = null;
+    let discovered = [];
+    let connectedReader = null;
 
-    async function initializeTerminal() {
+    const write = (msg) => {
+      statusEl.innerHTML = msg;
+      console.log('[TPE]', msg.replace(/<[^>]+>/g, ''));
+    };
+
+    // 1) Init Terminal + récupération du connection_token depuis ton backend
+    async function initTerminal() {
       terminal = StripeTerminal.create({
         onFetchConnectionToken: async () => {
-          const res = await fetch("/connection-token", { method: "POST" });
-          const data = await res.json();
-          return data.secret;
+          const r = await fetch('/connection-token', { method: 'POST' });
+          if (!r.ok) throw new Error('Impossible d’obtenir un connection_token');
+          const { secret } = await r.json();
+          return secret;
         },
         onUnexpectedReaderDisconnect: () => {
-          result.innerHTML = "❌ Lecteur déconnecté.";
+          connectedReader = null;
+          write('❌ Lecteur déconnecté.');
         }
       });
 
-      const discovery = await terminal.discoverReaders({ simulated: false });
-      if (discovery.error) {
-        result.innerHTML = "❌ Erreur lecteur : " + discovery.error.message;
-        return;
-      }
+      write('🔎 Recherche des lecteurs…');
+      // Pour WisePOS E: discovery via le réseau/internet.
+      // Laisse sans param pour laisser Stripe choisir selon le contexte.
+      const res = await terminal.discoverReaders({ simulated: false });
+      if (res.error) return write('❌ Erreur découverte lecteur : ' + res.error.message);
+      discovered = res.discoveredReaders || [];
 
-      if (discovery.discoveredReaders.length === 0) {
-        result.innerHTML = "❌ Aucun lecteur trouvé.";
-        return;
-      }
+      if (!discovered.length) return write('❌ Aucun lecteur trouvé. Vérifie Wi-Fi/Ethernet & Location.');
 
-      const connect = await terminal.connectReader(discovery.discoveredReaders[0]);
-      if (connect.error) {
-        result.innerHTML = "❌ Erreur connexion : " + connect.error.message;
-      } else {
-        result.innerHTML = "✅ Lecteur connecté : <strong>" + connect.reader.label + "</strong>";
-      }
+      // Remplit la liste déroulante
+      readerSelect.innerHTML = discovered
+        .map((r, i) => {
+          const label = r.label || r.device_type || r.serial_number || ('Reader #' + (i+1));
+          return `<option value="${i}">${label}</option>`;
+        })
+        .join('');
+      write('✅ Lecteur(s) trouvé(s). Sélectionne et clique “Connecter le lecteur”.');
     }
 
-    initializeTerminal();
+    // 2) Connexion au lecteur choisi
+    connectBtn.addEventListener('click', async () => {
+      if (!terminal) return write('❌ Terminal non initialisé.');
+      const idx = Number(readerSelect.value || 0);
+      const reader = discovered[idx];
+      if (!reader) return write('❌ Aucun lecteur sélectionné.');
 
-    form.addEventListener("submit", async (e) => {
+      write('🔗 Connexion au lecteur…');
+      const conn = await terminal.connectReader(reader);
+      if (conn.error) return write('❌ Erreur connexion : ' + conn.error.message);
+
+      connectedReader = conn.reader;
+      write('✅ Lecteur connecté : <b>' + (connectedReader.label || connectedReader.serial_number) + '</b>');
+    });
+
+    resetBtn.addEventListener('click', () => location.reload());
+
+    // 3) Soumission du paiement
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      result.innerHTML = "⏳ Envoi du paiement...";
+      if (!connectedReader) return write('❌ Connecte un lecteur d’abord.');
 
-      const formData = Object.fromEntries(new FormData(form).entries());
-      const montant = parseFloat(formData.montant);
-      if (isNaN(montant) || montant <= 0) {
-        result.innerHTML = "❌ Montant invalide.";
-        return;
-      }
+      write('⏳ Envoi du paiement…');
 
-      const montantCentimes = Math.round(montant * 100);
+      const fd = Object.fromEntries(new FormData(form).entries());
 
-      const response = await fetch("/create-payment-intent", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      // Accepter virgule ou point
+      const montantFloat = parseFloat(String(fd.montant).replace(',', '.'));
+      if (isNaN(montantFloat) || montantFloat <= 0) return write('❌ Montant invalide.');
+      const amountInCents = Math.round(montantFloat * 100);
+
+      // 3.1 Créer le PaymentIntent côté serveur
+      const r1 = await fetch('/create-payment-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          montant: montantCentimes,
-          email: formData.email,
-          firstName: formData.firstName,
-          lastName: formData.lastName
+          montant: amountInCents,
+          email: fd.email,
+          firstName: fd.firstName,
+          lastName: fd.lastName
         })
       });
-
-      const { client_secret } = await response.json();
-
-      const collect = await terminal.collectPaymentMethod(client_secret);
-      cancelCollect = collect.cancel;
-
-      if (collect.error) {
-        result.innerHTML = "❌ Erreur lecture carte : " + collect.error.message;
-        return;
+      const pi = await r1.json();
+      if (!r1.ok || !pi.client_secret) {
+        return write('❌ Erreur création PaymentIntent : ' + (pi.error || r1.statusText));
       }
 
+      // 3.2 Collecte sur le lecteur
+      write('💳 Présentez la carte…');
+      const collect = await terminal.collectPaymentMethod(pi.client_secret);
+      if (collect.error) return write('❌ Erreur lecture carte : ' + collect.error.message);
+
+      // 3.3 Confirmation (autorisation)
+      write('✅ Carte lue. Confirmation…');
       const confirm = await terminal.processPayment(collect.paymentIntent);
-      if (confirm.error) {
-        result.innerHTML = "❌ Erreur confirmation : " + confirm.error.message;
-        return;
-      }
+      if (confirm.error) return write('❌ Erreur confirmation : ' + confirm.error.message);
 
-      const capture = await fetch("/capture-payment", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      // 3.4 Capture côté serveur (car capture_method: manual)
+      write('🔒 Capture du paiement…');
+      const r2 = await fetch('/capture-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paymentIntentId: confirm.paymentIntent.id })
       });
+      const cap = await r2.json();
+      if (!r2.ok || cap.error) return write('❌ Erreur capture : ' + (cap.error || r2.statusText));
 
-      const captureResult = await capture.json();
-      if (captureResult.error) {
-        result.innerHTML = "❌ Erreur capture : " + captureResult.error;
-      } else {
-        result.innerHTML = "🎉 Paiement réussi !";
-        confetti();
-      }
+      write('🎉 Paiement réussi !');
+      if (window.confetti) confetti();
     });
+
+    // Lancer l'init au chargement
+    initTerminal().catch(e => write('❌ Init Terminal : ' + e.message));
   </script>
 </body>
 </html>
