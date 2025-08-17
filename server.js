@@ -232,25 +232,55 @@ app.post('/webhook/stripe', bodyParser.raw({ type: 'application/json' }), async 
 
 // ======================= Admin (Dashboard) =======================
 // JSON data (protégé par Firebase Auth + liste blanche emails)
+// Support des filtres from/to + raccourcis + KPIs
 app.get('/admin.json', verifyFirebaseIdToken, async (req, res) => {
   try {
-    const range = (req.query.range || '30d').toLowerCase();
+    const { range = 'today', from, to } = req.query;
 
-    let start = new Date();
-    if (range === '7d') start.setDate(start.getDate() - 7);
-    else if (range === '30d') start.setDate(start.getDate() - 30);
-    else if (range === 'mo') { start = new Date(); start.setDate(1); start.setHours(0,0,0,0); }
-    else start.setDate(start.getDate() - 30);
+    // helpers
+    const startOfDay = (d) => { d.setHours(0,0,0,0); return d; };
+    const endOfDay   = (d) => { d.setHours(23,59,59,999); return d; };
 
-    const snap = await paymentsCol
-      .where('status', '==', 'succeeded')
-      .where('created_at', '>=', admin.firestore.Timestamp.fromDate(start))
-      .orderBy('created_at', 'desc')
-      .limit(1000)
-      .get();
+    // Déterminer la fenêtre temporelle
+    let start = null;
+    let end = null;
+
+    if (from || to) {
+      if (from) start = new Date(from);
+      if (to)   end   = new Date(to);
+      if (start && isNaN(start)) start = null;
+      if (end   && isNaN(end))   end   = null;
+      if (start && !end) end = endOfDay(new Date()); // fallback
+      if (!start && end) start = startOfDay(new Date(end)); // fallback
+    } else {
+      const now = new Date();
+      if (range === '7d') {
+        end = now;
+        start = new Date(); start.setDate(now.getDate() - 6); start = startOfDay(start);
+      } else if (range === '30d') {
+        end = now;
+        start = new Date(); start.setDate(now.getDate() - 29); start = startOfDay(start);
+      } else if (range === 'mo') {
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        end   = endOfDay(new Date());
+      } else { // today par défaut
+        start = startOfDay(new Date());
+        end   = endOfDay(new Date());
+      }
+    }
+
+    // Construire la requête Firestore
+    let q = paymentsCol.where('status', '==', 'succeeded'); // on reste sur "réussis"
+    if (start) q = q.where('created_at', '>=', admin.firestore.Timestamp.fromDate(start));
+    if (end)   q = q.where('created_at', '<=', admin.firestore.Timestamp.fromDate(end));
+    q = q.orderBy('created_at', 'desc').limit(2000);
+
+    const snap = await q.get();
 
     const rows = [];
-    const perDay = new Map(); // yyyy-mm-dd -> {total, count}
+    const perDay = new Map(); // yyyy-mm-dd -> { total, count }
+    let totalCents = 0;
+    let count = 0;
 
     snap.forEach(doc => {
       const d = doc.data();
@@ -267,6 +297,9 @@ app.get('/admin.json', verifyFirebaseIdToken, async (req, res) => {
         created_at: date.toISOString(),
       });
 
+      totalCents += amount;
+      count += 1;
+
       const agg = perDay.get(dayKey) || { total: 0, count: 0 };
       agg.total += amount;
       agg.count += 1;
@@ -278,8 +311,18 @@ app.get('/admin.json', verifyFirebaseIdToken, async (req, res) => {
       .map(([day, v]) => ({ day, total: v.total, count: v.count }));
 
     res.json({
-      range,
+      filters: {
+        range,
+        from: start ? start.toISOString() : null,
+        to:   end   ? end.toISOString()   : null,
+        status: 'succeeded'
+      },
       currency: 'EUR',
+      kpis: {
+        total_cents: totalCents,
+        count,
+        avg_cents: count ? Math.round(totalCents / count) : 0,
+      },
       days: series,
       items: rows
     });
@@ -289,10 +332,9 @@ app.get('/admin.json', verifyFirebaseIdToken, async (req, res) => {
   }
 });
 
-// CSV export (protégé pareil)
+// CSV export (protégé pareil) — on le garde simple pour l’instant
 app.get('/admin.csv', verifyFirebaseIdToken, async (req, res) => {
   try {
-    // on réutilise la même vérif via un fetch interne, en propageant l’Authorization
     const r = await fetch(`${req.protocol}://${req.get('host')}/admin.json?range=${encodeURIComponent(req.query.range||'30d')}`, {
       headers: { authorization: req.headers.authorization || '' }
     });
@@ -319,7 +361,7 @@ app.get('/admin.csv', verifyFirebaseIdToken, async (req, res) => {
   }
 });
 
-// HTML dashboard (la page reste publique; le JS gère le login + Bearer)
+// HTML dashboard (publique; le JS gère le login + Bearer)
 app.get('/admin', async (req, res) => {
   // valeurs pour init Firebase côté client
   const WEB_API_KEY   = process.env.FIREBASE_WEB_API_KEY || '';
@@ -337,14 +379,17 @@ app.get('/admin', async (req, res) => {
 body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f6f9fc;margin:0;padding:24px}
 .card{background:#fff;border-radius:12px;box-shadow:0 6px 18px rgba(0,0,0,.06);padding:20px;max-width:1100px;margin:0 auto}
 h1{margin:0 0 16px}
-.controls{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.controls{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
 table{width:100%;border-collapse:collapse;margin-top:14px}
 th,td{padding:8px;border-bottom:1px solid #e5e7eb}
 th{background:#fafafa;text-align:left}
 .r{text-align:right}
 .badge{display:inline-block;padding:4px 8px;border-radius:8px;background:#edf2ff;color:#334}
+.kpis{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0}
+.kpis .k{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;min-width:140px}
 a.btn,button.btn{display:inline-block;padding:8px 10px;border:1px solid #d7dbe7;border-radius:8px;text-decoration:none;color:#111;background:#fff;cursor:pointer}
 a.btn:hover,button.btn:hover{background:#f5f7ff}
+input[type="date"]{padding:6px 8px;border:1px solid #d7dbe7;border-radius:8px;background:#fff}
 </style>
 </head>
 <body>
@@ -358,11 +403,24 @@ a.btn:hover,button.btn:hover{background:#f5f7ff}
     <span id="who" style="margin-left:auto;color:#555"></span>
   </div>
 
+  <!-- Filtres -->
   <div class="controls">
-    <a class="btn" href="?range=7d">7 jours</a>
-    <a class="btn" href="?range=30d">30 jours</a>
-    <a class="btn" href="?range=mo">Mois courant</a>
+    <span id="badge" class="badge">Aujourd’hui • Réussis</span>
+    <a class="btn" data-range="today">Aujourd’hui</a>
+    <a class="btn" data-range="7d">7 jours</a>
+    <a class="btn" data-range="30d">30 jours</a>
+    <a class="btn" data-range="mo">Mois courant</a>
+    <span style="margin-left:auto"></span>
+    <label>Du <input id="from" type="date"></label>
+    <label>au <input id="to" type="date"></label>
+    <button id="apply" class="btn">Appliquer</button>
     <a id="csv" class="btn" href="#">Export CSV</a>
+  </div>
+
+  <div class="kpis">
+    <div class="k"><div>Total €</div><div id="k_total" style="font-weight:700;font-size:20px">—</div></div>
+    <div class="k"><div>Nb paiements</div><div id="k_count" style="font-weight:700;font-size:20px">—</div></div>
+    <div class="k"><div>Ticket moyen €</div><div id="k_avg" style="font-weight:700;font-size:20px">—</div></div>
   </div>
 
   <canvas id="chart" height="90"></canvas>
@@ -417,14 +475,36 @@ a.btn:hover,button.btn:hover{background:#f5f7ff}
 </script>
 
 <script>
-const qs = new URLSearchParams(location.search);
-const range = qs.get('range') || '30d';
+let state = { range: (new URLSearchParams(location.search).get('range')||'today'), from: null, to: null };
+const badgeEl = document.getElementById('badge');
+const fromEl = document.getElementById('from');
+const toEl = document.getElementById('to');
+const applyEl = document.getElementById('apply');
+
+document.querySelectorAll('a.btn[data-range]').forEach(btn=>{
+  btn.addEventListener('click', (e)=>{
+    e.preventDefault();
+    state.range = btn.dataset.range;
+    state.from = state.to = null;
+    fromEl.value = toEl.value = '';
+    load();
+  });
+});
+
+applyEl.addEventListener('click', ()=>{
+  state.range = 'custom';
+  state.from = fromEl.value || null;
+  state.to   = toEl.value || null;
+  load();
+});
 
 document.getElementById('csv').addEventListener('click', async (e) => {
   e.preventDefault();
   const token = await (window.__getIdToken ? window.__getIdToken() : null);
   if (!token) return alert('Connecte-toi avec Google');
-  const resp = await fetch('/admin.csv?range=' + range, { headers: { Authorization: 'Bearer ' + token } });
+  const qs = new URLSearchParams();
+  qs.set('range', state.range === 'custom' ? '30d' : state.range); // on garde simple côté serveur pour le moment
+  const resp = await fetch('/admin.csv?' + qs.toString(), { headers: { Authorization: 'Bearer ' + token } });
   if (!resp.ok) return alert('Accès refusé');
   const blob = await resp.blob();
   const a = document.createElement('a');
@@ -433,24 +513,49 @@ document.getElementById('csv').addEventListener('click', async (e) => {
   a.click();
 });
 
+let chart;
+
+function formatEuros(cents){
+  return (cents/100).toFixed(2).replace('.', ',');
+}
+
 async function load() {
   const token = await (window.__getIdToken ? window.__getIdToken() : null);
-  if (!token) { /* pas connecté */ return; }
+  if (!token) return;
 
-  const r = await fetch('/admin.json?range=' + range, {
-    headers: { Authorization: 'Bearer ' + token }
-  });
-  if (!r.ok) {
-    console.error('admin.json error', r.status);
-    return;
+  // Construire la query
+  const qs = new URLSearchParams();
+  if (state.range && state.range !== 'custom') qs.set('range', state.range);
+  if (state.range === 'custom') {
+    if (state.from) qs.set('from', state.from);
+    if (state.to)   qs.set('to', state.to);
   }
+
+  const r = await fetch('/admin.json?' + qs.toString(), { headers: { Authorization: 'Bearer ' + token } });
+  if (!r.ok) { console.error('admin.json error', r.status); return; }
   const data = await r.json();
+
+  // Badge période
+  let label = 'Aujourd’hui';
+  if (data.filters?.range === '7d') label = '7 jours';
+  else if (data.filters?.range === '30d') label = '30 jours';
+  else if (data.filters?.range === 'mo') label = 'Mois courant';
+  if (data.filters?.from && data.filters?.to) {
+    label = 'Du ' + data.filters.from.slice(0,10) + ' au ' + data.filters.to.slice(0,10);
+  }
+  badgeEl.textContent = label + ' • Réussis';
+
+  // KPIs
+  document.getElementById('k_total').textContent = formatEuros(data.kpis?.total_cents||0);
+  document.getElementById('k_count').textContent = (data.kpis?.count||0);
+  document.getElementById('k_avg').textContent   = formatEuros(data.kpis?.avg_cents||0);
 
   // Graph
   const labels = data.days.map(d => d.day);
   const totals = data.days.map(d => (d.total/100).toFixed(2));
   const ctx = document.getElementById('chart').getContext('2d');
-  new Chart(ctx, {
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
     type: 'bar',
     data: { labels, datasets: [{ label: 'Total (€)', data: totals }] },
     options: { plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
@@ -459,7 +564,7 @@ async function load() {
   // Tableau
   const tbody = document.querySelector('#tbl tbody');
   tbody.innerHTML = data.items.map(x => {
-    const euros = (x.amount_cents/100).toFixed(2).replace('.', ',');
+    const euros = formatEuros(x.amount_cents);
     const date = new Date(x.created_at).toLocaleString();
     return \`<tr>
       <td>\${date}</td>
@@ -470,7 +575,6 @@ async function load() {
     </tr>\`;
   }).join('');
 }
-load();
 </script>
 </body></html>`);
 });
