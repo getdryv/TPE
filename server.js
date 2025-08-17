@@ -77,7 +77,7 @@ app.post('/connection-token', async (_req, res) => {
   }
 });
 
-// 2) Création PaymentIntent (montant en CENTIMES)
+// 2) Création PaymentIntent (montant en CENTIMES) + Customer + METADATA
 app.post('/create-payment-intent', async (req, res) => {
   try {
     const { montant, email, firstName, lastName } = req.body;
@@ -86,11 +86,17 @@ app.post('/create-payment-intent', async (req, res) => {
       return res.status(400).json({ error: 'montant doit être un entier > 0 (en centimes)' });
     }
 
+    const fName = (firstName || '').toString().trim();
+    const lName = (lastName  || '').toString().trim();
+    const fullName = [fName, lName].filter(Boolean).join(' ').trim();
+    const emailSafe = (email || '').toString().trim();
+
     const idempotencyKey = req.headers['idempotency-key'] || crypto.randomUUID();
 
+    // Créer/associer un customer (utile pour reçus + fallback nom/email)
     const customer = await stripe.customers.create({
-      name: [firstName, lastName].filter(Boolean).join(' ').trim() || undefined,
-      email: email || undefined,
+      name: fullName || undefined,
+      email: emailSafe || undefined,
     });
 
     const pi = await stripe.paymentIntents.create(
@@ -100,8 +106,15 @@ app.post('/create-payment-intent', async (req, res) => {
         payment_method_types: ['card_present'],
         capture_method: 'manual',
         customer: customer.id,
-        receipt_email: email || undefined,
-        metadata: { source: 'terminal' },
+        receipt_email: emailSafe || undefined,
+        // On place nos infos pour les retrouver au webhook même si billing_details est vide
+        metadata: {
+          source: 'terminal',
+          firstName: fName,
+          lastName: lName,
+          fullName,
+          email: emailSafe
+        },
       },
       { idempotencyKey }
     );
@@ -147,25 +160,43 @@ app.post('/webhook/stripe', bodyParser.raw({ type: 'application/json' }), async 
       case 'payment_intent.succeeded': {
         const pi = event.data.object;
 
-        // Infos client si dispo
-        const charge = pi.charges?.data?.[0];
-        const name = charge?.billing_details?.name || '';
-        const email = pi.receipt_email || charge?.billing_details?.email || '';
+        // 1) On tente d’abord via METADATA (toujours présent car envoyé par nous)
+        let customerName = pi.metadata?.fullName || '';
+        let customerEmail = pi.metadata?.email || '';
 
-        // On ne stocke QUE les réussis
+        // 2) Sinon on regarde la charge/billing_details
+        const charge = pi.charges?.data?.[0];
+        if (!customerName) {
+          customerName = charge?.billing_details?.name || '';
+        }
+        if (!customerEmail) {
+          customerEmail = pi.receipt_email || charge?.billing_details?.email || '';
+        }
+
+        // 3) En dernier recours : we fetch le Customer
+        if ((!customerName || !customerEmail) && pi.customer) {
+          try {
+            const cust = await stripe.customers.retrieve(pi.customer);
+            customerName = customerName || cust?.name || '';
+            customerEmail = customerEmail || cust?.email || '';
+          } catch (e) {
+            console.warn('⚠️ retrieve customer failed:', e?.message || e);
+          }
+        }
+
         const doc = {
           pi_id: pi.id,
           amount_cents: pi.amount || 0,
           currency: pi.currency || 'eur',
-          customer_name: name,
-          email,
+          customer_name: customerName || '',
+          email: customerEmail || '',
           status: 'succeeded',
           created_at: admin.firestore.Timestamp.fromMillis((pi.created || Math.floor(Date.now()/1000)) * 1000),
           succeeded_at: admin.firestore.Timestamp.fromMillis(Date.now()),
         };
 
         await paymentsCol.doc(pi.id).set(doc, { merge: true });
-        console.log(`🔥 Firestore: saved ${pi.id} (${doc.amount_cents} ${doc.currency})`);
+        console.log(`🔥 Firestore: saved ${pi.id} — ${doc.amount_cents} ${doc.currency} — ${doc.customer_name} <${doc.email}>`);
         break;
       }
 
