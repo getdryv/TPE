@@ -16,7 +16,7 @@ if (!process.env.STRIPE_SECRET_KEY) {
 }
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-// ----- Firebase Admin (Firestore) -----
+// ----- Firebase Admin (Firestore + vérif ID token) -----
 const admin = require('firebase-admin');
 if (!admin.apps.length) {
   if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
@@ -43,16 +43,31 @@ app.use((req, res, next) => {
   return express.json()(req, res, next);
 });
 
-// ----- Utils -----
-function requireBasicAuth(req, res, next) {
-  const auth = req.headers.authorization || '';
-  const [type, raw] = auth.split(' ');
-  if (type === 'Basic' && raw) {
-    const [user, pass] = Buffer.from(raw, 'base64').toString().split(':');
-    if (user === process.env.BASIC_AUTH_USER && pass === process.env.BASIC_AUTH_PASS) return next();
+// ----- Middleware Firebase Auth pour l'API admin -----
+async function verifyFirebaseIdToken(req, res, next) {
+  try {
+    const auth = req.headers.authorization || '';
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return res.status(401).json({ error: 'Missing Bearer token' });
+
+    const decoded = await admin.auth().verifyIdToken(token);
+    const email = (decoded.email || '').toLowerCase();
+
+    const allowed = (process.env.ADMIN_EMAILS || '')
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    if (!email || !allowed.includes(email)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    req.user = { email, uid: decoded.uid };
+    next();
+  } catch (e) {
+    console.error('verifyFirebaseIdToken error:', e);
+    res.status(401).json({ error: 'Invalid token' });
   }
-  res.set('WWW-Authenticate', 'Basic realm="TPE Admin"');
-  res.status(401).send('Authentication required.');
 }
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
@@ -93,7 +108,7 @@ app.post('/create-payment-intent', async (req, res) => {
 
     const idempotencyKey = req.headers['idempotency-key'] || crypto.randomUUID();
 
-    // Créer/associer un customer (utile pour reçus + fallback nom/email)
+    // Créer/associer un customer
     const customer = await stripe.customers.create({
       name: fullName || undefined,
       email: emailSafe || undefined,
@@ -107,13 +122,12 @@ app.post('/create-payment-intent', async (req, res) => {
         capture_method: 'manual',
         customer: customer.id,
         receipt_email: emailSafe || undefined,
-        // On place nos infos pour les retrouver au webhook même si billing_details est vide
         metadata: {
           source: 'terminal',
           firstName: fName,
           lastName: lName,
           fullName,
-          email: emailSafe
+          email: emailSafe,
         },
       },
       { idempotencyKey }
@@ -160,20 +174,16 @@ app.post('/webhook/stripe', bodyParser.raw({ type: 'application/json' }), async 
       case 'payment_intent.succeeded': {
         const pi = event.data.object;
 
-        // 1) On tente d’abord via METADATA (toujours présent car envoyé par nous)
+        // 1) via METADATA
         let customerName = pi.metadata?.fullName || '';
         let customerEmail = pi.metadata?.email || '';
 
-        // 2) Sinon on regarde la charge/billing_details
+        // 2) via charge/billing_details
         const charge = pi.charges?.data?.[0];
-        if (!customerName) {
-          customerName = charge?.billing_details?.name || '';
-        }
-        if (!customerEmail) {
-          customerEmail = pi.receipt_email || charge?.billing_details?.email || '';
-        }
+        if (!customerName) customerName = charge?.billing_details?.name || '';
+        if (!customerEmail) customerEmail = pi.receipt_email || charge?.billing_details?.email || '';
 
-        // 3) En dernier recours : we fetch le Customer
+        // 3) en dernier recours: retrieve customer
         if ((!customerName || !customerEmail) && pi.customer) {
           try {
             const cust = await stripe.customers.retrieve(pi.customer);
@@ -221,8 +231,8 @@ app.post('/webhook/stripe', bodyParser.raw({ type: 'application/json' }), async 
 });
 
 // ======================= Admin (Dashboard) =======================
-// JSON data
-app.get('/admin.json', requireBasicAuth, async (req, res) => {
+// JSON data (protégé par Firebase Auth + liste blanche emails)
+app.get('/admin.json', verifyFirebaseIdToken, async (req, res) => {
   try {
     const range = (req.query.range || '30d').toLowerCase();
 
@@ -279,9 +289,10 @@ app.get('/admin.json', requireBasicAuth, async (req, res) => {
   }
 });
 
-// CSV export
-app.get('/admin.csv', requireBasicAuth, async (req, res) => {
+// CSV export (protégé pareil)
+app.get('/admin.csv', verifyFirebaseIdToken, async (req, res) => {
   try {
+    // on réutilise la même vérif via un fetch interne, en propageant l’Authorization
     const r = await fetch(`${req.protocol}://${req.get('host')}/admin.json?range=${encodeURIComponent(req.query.range||'30d')}`, {
       headers: { authorization: req.headers.authorization || '' }
     });
@@ -308,8 +319,13 @@ app.get('/admin.csv', requireBasicAuth, async (req, res) => {
   }
 });
 
-// HTML dashboard
-app.get('/admin', requireBasicAuth, async (req, res) => {
+// HTML dashboard (la page reste publique; le JS gère le login + Bearer)
+app.get('/admin', async (req, res) => {
+  // valeurs pour init Firebase côté client
+  const WEB_API_KEY   = process.env.FIREBASE_WEB_API_KEY || '';
+  const AUTH_DOMAIN   = process.env.FIREBASE_AUTH_DOMAIN || '';
+  const PROJECT_ID    = process.env.FIREBASE_PROJECT_ID || '';
+
   res.send(`<!doctype html>
 <html lang="fr">
 <head>
@@ -327,19 +343,28 @@ th,td{padding:8px;border-bottom:1px solid #e5e7eb}
 th{background:#fafafa;text-align:left}
 .r{text-align:right}
 .badge{display:inline-block;padding:4px 8px;border-radius:8px;background:#edf2ff;color:#334}
-a.btn{display:inline-block;padding:8px 10px;border:1px solid #d7dbe7;border-radius:8px;text-decoration:none;color:#111;background:#fff}
-a.btn:hover{background:#f5f7ff}
+a.btn,button.btn{display:inline-block;padding:8px 10px;border:1px solid #d7dbe7;border-radius:8px;text-decoration:none;color:#111;background:#fff;cursor:pointer}
+a.btn:hover,button.btn:hover{background:#f5f7ff}
 </style>
 </head>
 <body>
 <div class="card">
   <h1>Dashboard TPE</h1>
+
+  <!-- Barre login -->
+  <div id="authbar" class="controls" style="justify-content:flex-start">
+    <button id="loginBtn" class="btn">Se connecter avec Google</button>
+    <button id="logoutBtn" class="btn" style="display:none">Se déconnecter</button>
+    <span id="who" style="margin-left:auto;color:#555"></span>
+  </div>
+
   <div class="controls">
     <a class="btn" href="?range=7d">7 jours</a>
     <a class="btn" href="?range=30d">30 jours</a>
     <a class="btn" href="?range=mo">Mois courant</a>
     <a id="csv" class="btn" href="#">Export CSV</a>
   </div>
+
   <canvas id="chart" height="90"></canvas>
   <table id="tbl">
     <thead><tr>
@@ -348,13 +373,77 @@ a.btn:hover{background:#f5f7ff}
     <tbody></tbody>
   </table>
 </div>
+
+<!-- Firebase Auth côté client -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } 
+    from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "${WEB_API_KEY}",
+    authDomain: "${AUTH_DOMAIN}",
+    projectId: "${PROJECT_ID}"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const provider = new GoogleAuthProvider();
+
+  const loginBtn = document.getElementById('loginBtn');
+  const logoutBtn = document.getElementById('logoutBtn');
+  const who = document.getElementById('who');
+
+  loginBtn.onclick = () => signInWithPopup(auth, provider);
+  logoutBtn.onclick = () => signOut(auth);
+
+  let idToken = null;
+  window.__getIdToken = async () => idToken || (await auth.currentUser?.getIdToken());
+
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      idToken = await user.getIdToken(true);
+      loginBtn.style.display = 'none';
+      logoutBtn.style.display = 'inline-block';
+      who.textContent = user.email || '';
+      if (typeof load === 'function') load(); // recharge les données
+    } else {
+      idToken = null;
+      loginBtn.style.display = 'inline-block';
+      logoutBtn.style.display = 'none';
+      who.textContent = '';
+    }
+  });
+</script>
+
 <script>
 const qs = new URLSearchParams(location.search);
 const range = qs.get('range') || '30d';
-document.getElementById('csv').href = '/admin.csv?range=' + range;
+
+document.getElementById('csv').addEventListener('click', async (e) => {
+  e.preventDefault();
+  const token = await (window.__getIdToken ? window.__getIdToken() : null);
+  if (!token) return alert('Connecte-toi avec Google');
+  const resp = await fetch('/admin.csv?range=' + range, { headers: { Authorization: 'Bearer ' + token } });
+  if (!resp.ok) return alert('Accès refusé');
+  const blob = await resp.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'paiements.csv';
+  a.click();
+});
 
 async function load() {
-  const r = await fetch('/admin.json?range=' + range, { credentials: 'include' });
+  const token = await (window.__getIdToken ? window.__getIdToken() : null);
+  if (!token) { /* pas connecté */ return; }
+
+  const r = await fetch('/admin.json?range=' + range, {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!r.ok) {
+    console.error('admin.json error', r.status);
+    return;
+  }
   const data = await r.json();
 
   // Graph
