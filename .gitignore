@@ -1,0 +1,8 @@
+# ignorer les modules installés
+node_modules/
+
+# ignorer les fichiers d'environnement avec tes clés Stripe
+.env
+
+# fichiers système inutiles
+.DS_Store
