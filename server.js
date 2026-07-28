@@ -242,46 +242,84 @@ app.get('/api/students', async (req, res) => {
   }
 });
 
-// ======================= Stripe Terminal =======================
-// 1) Connection token
-app.post('/connection-token', async (req, res) => {
+// ======================= Encaissement, piloté par le serveur =======================
+//
+// Le navigateur ne parle plus jamais au lecteur. Il demande à notre serveur, qui
+// demande à Stripe, qui pousse l'ordre au lecteur par la liaison nuage que
+// celui-ci maintient en permanence.
+//
+// ─── Pourquoi avoir abandonné le SDK navigateur ─────────────────────────────
+// Le SDK JavaScript exige une connexion directe entre le navigateur et le
+// lecteur, sur le réseau local. Éprouvé le 2026-07-28 sur le WisePOS E de
+// Getdryv : nom résolu correctement, appareil présent sur le réseau (réponse
+// ARP), mais aucune connexion acceptée — et la même chose depuis un terminal,
+// donc ni le navigateur ni le système n'étaient en cause. Le pilotage par le
+// serveur a fonctionné du premier coup sur ce même lecteur.
+//
+// Ce qu'on y gagne, au-delà du déblocage : plus aucune dépendance au réseau
+// local, donc la caisse fonctionne depuis n'importe où — un autre bureau, un
+// téléphone en 4G — tant que le lecteur, lui, a Internet.
+//
+// Ce qu'on y perd : le navigateur ne connaît plus l'état du lecteur en direct,
+// il faut le demander régulièrement. D'où la route d'état ci-dessous.
+
+/** Lecteurs de l'agence, pour que la caisse sache lequel solliciter. */
+app.get('/api/lecteurs', async (req, res) => {
   try {
     const agence = await exigerAgence(req, res);
     if (!agence) return;
 
-    // L'emplacement cadre la découverte : sans lui, une agence verrait les
-    // lecteurs des autres agences du même compte Stripe.
-    const params = {};
+    // Sans emplacement on ne filtre pas : mieux vaut proposer trop de lecteurs
+    // que zéro. Avec, on ne voit que ceux de cette agence — indispensable dès
+    // que deux agences partagent un compte Stripe.
+    const params = { limit: 20 };
     if (agence.terminalLocation) params.location = agence.terminalLocation;
 
-    const token = await agence.stripe.terminal.connectionTokens.create(params);
-    res.json({ secret: token.secret });
+    const liste = await agence.stripe.terminal.readers.list(params);
+    res.json({
+      lecteurs: (liste.data || []).map((r) => ({
+        id: r.id,
+        label: r.label || r.serial_number || r.id,
+        enLigne: r.status === 'online',
+      })),
+    });
   } catch (err) {
-    console.error('connection-token error:', err);
-    res.status(500).send({ error: err.message });
+    console.error('liste des lecteurs :', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 
-// 2) Création PaymentIntent (montant en CENTIMES) + Customer + METADATA
-app.post('/create-payment-intent', async (req, res) => {
+/**
+ * Lance un encaissement : crée le paiement et l'affiche sur le lecteur.
+ *
+ * Montant en CENTIMES. Capture manuelle : la carte est autorisée à l'écran du
+ * lecteur, mais rien n'est prélevé tant que `/api/paiement/capture` n'a pas été
+ * appelé. C'est ce qui permet d'annuler sans frais si quelque chose cloche
+ * entre l'autorisation et la fin.
+ */
+app.post('/api/paiement', async (req, res) => {
   try {
-    const { montant, email, firstName, lastName } = req.body;
-
-    if (!Number.isInteger(montant) || montant <= 0) {
-      return res.status(400).json({ error: 'montant doit être un entier > 0 (en centimes)' });
-    }
-
-    const fName = (firstName || '').toString().trim();
-    const lName = (lastName  || '').toString().trim();
-    const fullName = [fName, lName].filter(Boolean).join(' ').trim();
-    const emailSafe = (email || '').toString().trim();
-
     const agence = await exigerAgence(req, res);
     if (!agence) return;
 
+    const { montant, email, firstName, lastName, lecteur } = req.body;
+
+    if (!Number.isInteger(montant) || montant <= 0) {
+      return res.status(400).json({ error: 'Montant invalide.' });
+    }
+    if (!lecteur) {
+      return res.status(400).json({ error: 'Aucun lecteur sélectionné.' });
+    }
+
+    const fName = (firstName || '').toString().trim();
+    const lName = (lastName || '').toString().trim();
+    const fullName = [fName, lName].filter(Boolean).join(' ').trim();
+    const emailSafe = (email || '').toString().trim();
+
+    // Deux clics rapides sur « Envoyer au TPE » ne doivent pas créer deux
+    // paiements : la même clé donne le même PaymentIntent.
     const idempotencyKey = req.headers['idempotency-key'] || crypto.randomUUID();
 
-    // Créer/associer un customer
     const customer = await agence.stripe.customers.create({
       name: fullName || undefined,
       email: emailSafe || undefined,
@@ -297,6 +335,7 @@ app.post('/create-payment-intent', async (req, res) => {
         receipt_email: emailSafe || undefined,
         metadata: {
           source: 'terminal',
+          agence: agence.slug || '',
           firstName: fName,
           lastName: lName,
           fullName,
@@ -306,30 +345,106 @@ app.post('/create-payment-intent', async (req, res) => {
       { idempotencyKey }
     );
 
-    res.json({ client_secret: pi.client_secret, id: pi.id });
+    await agence.stripe.terminal.readers.processPaymentIntent(lecteur, {
+      payment_intent: pi.id,
+    });
+
+    res.json({ paymentIntentId: pi.id, lecteur });
   } catch (err) {
-    console.error('create-payment-intent error:', err);
-    res.status(500).send({ error: err.message });
+    console.error('paiement :', err.message);
+    // Le message de Stripe est plus utile que le nôtre : il distingue un
+    // lecteur hors ligne d'un lecteur déjà occupé par un autre encaissement.
+    res.status(500).json({ error: err.message });
   }
 });
 
-// 3) Capture PaymentIntent (après autorisation sur le TPE)
-app.post('/capture-payment', async (req, res) => {
+/**
+ * Où en est l'encaissement ?
+ *
+ * Interrogée en boucle par la caisse. Renvoie un état unique plutôt que l'état
+ * brut de Stripe, pour que la page n'ait pas à connaître son vocabulaire :
+ *   attente   — le lecteur affiche le montant, la carte n'est pas passée
+ *   autorise  — la carte a été acceptée, il reste à capturer
+ *   echec     — refus, annulation, ou erreur du lecteur
+ *   capture   — déjà encaissé
+ */
+app.get('/api/paiement/etat', async (req, res) => {
   try {
-    const { paymentIntentId } = req.body;
-    if (!paymentIntentId) return res.status(400).json({ error: 'paymentIntentId requis' });
-
-    // Même agence qu'à la création : capturer avec la clé d'un autre compte
-    // échouerait, le PaymentIntent n'y existant pas.
     const agence = await exigerAgence(req, res);
     if (!agence) return;
 
-    const captured = await agence.stripe.paymentIntents.capture(paymentIntentId);
-    res.send({ success: true, captured });
+    const pi = (req.query.pi || '').toString();
+    if (!pi) return res.status(400).json({ error: 'Paiement non précisé.' });
+
+    const intent = await agence.stripe.paymentIntents.retrieve(pi);
+
+    if (intent.status === 'requires_capture') return res.json({ etat: 'autorise' });
+    if (intent.status === 'succeeded') return res.json({ etat: 'capture' });
+    if (intent.status === 'canceled') return res.json({ etat: 'echec', message: 'Paiement annulé.' });
+
+    // Toujours en attente côté paiement : le lecteur peut néanmoins avoir
+    // échoué (carte refusée, annulation sur l'écran). Son action porte alors le
+    // motif, bien plus parlant que « en attente ».
+    const lecteur = (req.query.lecteur || '').toString();
+    if (lecteur) {
+      const r = await agence.stripe.terminal.readers.retrieve(lecteur);
+      if (r.action && r.action.status === 'failed') {
+        return res.json({ etat: 'echec', message: r.action.failure_message || 'Le lecteur a refusé le paiement.' });
+      }
+    }
+
+    res.json({ etat: 'attente' });
   } catch (err) {
-    console.error('capture-payment error:', err);
-    res.status(500).send({ error: err.message });
+    console.error('état du paiement :', err.message);
+    res.status(500).json({ error: err.message });
   }
+});
+
+/** Capture : c'est ici, et seulement ici, que l'argent part. */
+app.post('/api/paiement/capture', async (req, res) => {
+  try {
+    const agence = await exigerAgence(req, res);
+    if (!agence) return;
+
+    const { paymentIntentId } = req.body;
+    if (!paymentIntentId) return res.status(400).json({ error: 'Paiement non précisé.' });
+
+    const capture = await agence.stripe.paymentIntents.capture(paymentIntentId);
+    res.json({ success: true, montant: capture.amount, id: capture.id });
+  } catch (err) {
+    console.error('capture :', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Annule l'encaissement en cours : efface l'écran du lecteur et le paiement.
+ *
+ * Les deux annulations sont indépendantes et chacune peut échouer sans que
+ * l'autre en pâtisse — un lecteur qui n'affiche déjà plus rien ne doit pas
+ * empêcher d'annuler le paiement, sinon on laisserait une autorisation ouverte.
+ */
+app.post('/api/paiement/annuler', async (req, res) => {
+  const agence = await exigerAgence(req, res);
+  if (!agence) return;
+
+  const { paymentIntentId, lecteur } = req.body;
+
+  if (lecteur) {
+    try {
+      await agence.stripe.terminal.readers.cancelAction(lecteur);
+    } catch (err) {
+      console.warn('annulation de l\'affichage :', err.message);
+    }
+  }
+  if (paymentIntentId) {
+    try {
+      await agence.stripe.paymentIntents.cancel(paymentIntentId);
+    } catch (err) {
+      console.warn('annulation du paiement :', err.message);
+    }
+  }
+  res.json({ ok: true });
 });
 
 // ======================= Webhook Stripe =======================

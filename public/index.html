@@ -4,7 +4,8 @@
   <meta charset="UTF-8" />
   <title>Paiement TPE</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://js.stripe.com/terminal/v1/"></script>
+  <!-- Le SDK Stripe Terminal a été retiré : la caisse ne parle plus au lecteur,
+       c'est le serveur qui demande à Stripe de le piloter. -->
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
   <style>
@@ -61,9 +62,8 @@
     <h2>Paiement TPE <strong id="nomAgence"></strong></h2>
 
     <div class="row" style="margin-bottom:12px">
-      <label class="muted" for="readerSelect">Lecteur détecté</label>
+      <label class="muted" for="readerSelect">Lecteur</label>
       <select id="readerSelect"></select>
-      <button id="connectBtn" class="secondary-btn hidden">Connecter le lecteur</button>
     </div>
 
     <!--
@@ -84,6 +84,7 @@
       <button id="payBtn" type="submit" class="main-btn" disabled>Envoyer au TPE</button>
     </form>
 
+    <button id="cancelBtn" class="secondary-btn hidden" style="margin-top:10px">Annuler l'encaissement</button>
     <button id="resetBtn" class="secondary-btn" style="margin-top:10px">Nouvelle transaction</button>
     <div id="status" class="muted"></div>
   </div>
@@ -92,15 +93,9 @@
     const statusEl = document.getElementById('status');
     const form = document.getElementById('paymentForm');
     const readerSelect = document.getElementById('readerSelect');
-    const connectBtn = document.getElementById('connectBtn');
     const resetBtn = document.getElementById('resetBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
     const payBtn = document.getElementById('payBtn');
-
-    let terminal;
-    let discovered = [];
-    let connectedReader = null;
-
-    const PREFERRED_READER_KEY = 'preferred_reader_serial';
 
     const write = (msg) => {
       statusEl.innerHTML = msg;
@@ -112,110 +107,110 @@
     // les clés sont dans son environnement.
     const AGENCE = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, '')).toLowerCase();
 
-    async function fetchConnectionToken() {
-      const r = await fetch('/connection-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: AGENCE })
-      });
-      if (!r.ok) {
-        // Le message du serveur est plus utile que « erreur » : il distingue une
-        // agence non configurée d'une panne Stripe.
-        const detail = await r.json().catch(() => ({}));
-        throw new Error(detail.error || 'Impossible d’obtenir un connection_token');
-      }
-      const { secret } = await r.json();
-      return secret;
-    }
+    // ─── L'encaissement est piloté par le serveur ────────────────────────────
+    //
+    // Cette page ne parle jamais au lecteur. Elle demande à notre serveur, qui
+    // demande à Stripe, qui pousse l'ordre au lecteur. Aucune connexion locale
+    // n'est nécessaire : la caisse fonctionne donc depuis n'importe quel réseau,
+    // pourvu que le lecteur, lui, ait Internet.
+    //
+    // En contrepartie, la page ne sait pas ce qui se passe sur le lecteur : elle
+    // demande où en est le paiement, régulièrement, jusqu'à une issue.
 
-    // 1) Init Terminal + découverte + AUTO-CONNEXION
-    async function initTerminal() {
-      terminal = StripeTerminal.create({
-        onFetchConnectionToken: fetchConnectionToken,
-        onUnexpectedReaderDisconnect: () => {
-          connectedReader = null;
-          payBtn.disabled = true;
-          write('❌ Lecteur déconnecté.');
+    const DELAI_SONDAGE_MS = 1500;
+    // Deux minutes : au-delà, la carte ne viendra plus et laisser l'écran du
+    // lecteur bloqué empêcherait l'encaissement suivant.
+    const DELAI_ABANDON_MS = 120000;
+
+    let lecteurChoisi = null;
+    let paiementEnCours = null;
+
+    const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    /** Charge les lecteurs de l'agence. Sans lecteur, pas d'encaissement possible. */
+    async function chargerLecteurs() {
+      write('🔎 Recherche des lecteurs…');
+      try {
+        const r = await fetch('/api/lecteurs?slug=' + encodeURIComponent(AGENCE));
+        const data = await r.json();
+        if (!r.ok) return write('❌ ' + (data.error || 'Lecteurs indisponibles.'));
+
+        const lecteurs = data.lecteurs || [];
+        if (!lecteurs.length) {
+          return write('❌ Aucun lecteur enregistré pour cette agence. Vérifiez son emplacement Terminal dans sa fiche.');
         }
-      });
 
-      write('🔎 Recherche des lecteurs (internet)…');
-      const res = await terminal.discoverReaders({
-        simulated: false,
-        discoveryMethod: 'internet'
-      });
-      if (res.error) return write('❌ Erreur découverte lecteur : ' + res.error.message);
+        readerSelect.innerHTML = lecteurs
+          .map((l) => `<option value="${l.id}">${l.label}${l.enLigne ? '' : ' — hors ligne'}</option>`)
+          .join('');
 
-      discovered = res.discoveredReaders || [];
-      if (!discovered.length) {
-        return write('❌ Aucun lecteur trouvé. Vérifie : clés LIVE, lecteur enregistré LIVE, Location assignée et réseau du lecteur.');
-      }
+        // On préselectionne un lecteur en ligne : proposer d'emblée un lecteur
+        // éteint ferait échouer l'encaissement sans raison apparente.
+        const enLigne = lecteurs.find((l) => l.enLigne);
+        lecteurChoisi = (enLigne || lecteurs[0]).id;
+        readerSelect.value = lecteurChoisi;
 
-      // Remplir la liste pour info/choix manuel si besoin
-      readerSelect.innerHTML = discovered
-        .map((r, i) => {
-          const label = r.label || r.device_type || r.serial_number || ('Reader #'+(i+1));
-          return `<option value="${i}">${label}</option>`;
-        }).join('');
-
-      // AUTO-CONNEXION :
-      // 1) si un lecteur préféré est mémorisé, tente celui-là
-      const preferredSerial = localStorage.getItem(PREFERRED_READER_KEY);
-      let target = discovered.find(r => r.serial_number === preferredSerial);
-
-      // 2) sinon, si un seul lecteur → prends-le
-      if (!target && discovered.length === 1) target = discovered[0];
-
-      // 3) sinon, prends celui sélectionné dans la liste
-      if (!target) target = discovered[Number(readerSelect.value || 0)];
-
-      // si on a un candidat, on tente direct la connexion
-      if (target) {
-        write('🔗 Connexion automatique au lecteur…');
-        const conn = await terminal.connectReader(target);
-        if (conn.error) {
-          // si échec, on affiche le bouton pour connexion manuelle
-          connectBtn.classList.remove('hidden');
-          return write('❌ Erreur connexion auto : ' + conn.error.message + '<br>Essayez “Connecter le lecteur”.');
-        }
-        onReaderConnected(conn.reader);
-      } else {
-        // pas de cible claire → laisse le bouton manuel
-        connectBtn.classList.remove('hidden');
-        write('ℹ️ Sélectionnez un lecteur puis cliquez “Connecter le lecteur”.');
+        payBtn.disabled = false;
+        write(enLigne
+          ? '✅ Lecteur prêt : <b>' + enLigne.label + '</b>'
+          : '⚠️ Le lecteur est hors ligne. Vérifiez qu\'il est allumé et connecté.');
+      } catch (e) {
+        write('❌ Lecteurs indisponibles : ' + e.message);
       }
     }
 
-    function onReaderConnected(reader) {
-      connectedReader = reader;
+    readerSelect.addEventListener('change', () => { lecteurChoisi = readerSelect.value; });
+
+    /** Interroge le serveur jusqu'à une issue : autorisé, échec, ou abandon. */
+    async function suivrePaiement(paymentIntentId) {
+      const limite = Date.now() + DELAI_ABANDON_MS;
+
+      while (Date.now() < limite) {
+        await attendre(DELAI_SONDAGE_MS);
+
+        const r = await fetch(
+          '/api/paiement/etat?slug=' + encodeURIComponent(AGENCE) +
+          '&pi=' + encodeURIComponent(paymentIntentId) +
+          '&lecteur=' + encodeURIComponent(lecteurChoisi)
+        );
+        const data = await r.json().catch(() => ({}));
+
+        // Un incident réseau passager ne doit pas interrompre le suivi : la
+        // carte est peut-être déjà sur le lecteur. On retentera au tour suivant.
+        if (!r.ok) continue;
+
+        if (data.etat === 'autorise') return { ok: true };
+        if (data.etat === 'capture') return { ok: true, dejaCapture: true };
+        if (data.etat === 'echec') return { ok: false, message: data.message };
+      }
+
+      return { ok: false, message: 'Délai dépassé — aucune carte présentée.' };
+    }
+
+    async function annulerPaiement(silencieux) {
+      if (!paiementEnCours) return;
+      const pi = paiementEnCours;
+      paiementEnCours = null;
+      cancelBtn.classList.add('hidden');
+      try {
+        await fetch('/api/paiement/annuler', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ slug: AGENCE, paymentIntentId: pi, lecteur: lecteurChoisi }),
+        });
+      } catch (_) { /* l'affichage du lecteur retombera seul */ }
+      if (!silencieux) write('⛔️ Encaissement annulé.');
       payBtn.disabled = false;
-      connectBtn.classList.add('hidden');
-      // mémoriser ce lecteur pour la prochaine fois
-      if (reader.serial_number) {
-        localStorage.setItem(PREFERRED_READER_KEY, reader.serial_number);
-      }
-      write('✅ Lecteur connecté : <b>' + (reader.label || reader.serial_number) + '</b>');
     }
 
-    // Connexion manuelle (fallback)
-    connectBtn.addEventListener('click', async () => {
-      const idx = Number(readerSelect.value || 0);
-      const reader = discovered[idx];
-      if (!reader) return write('❌ Aucun lecteur sélectionné.');
-      write('🔗 Connexion au lecteur…');
-      const conn = await terminal.connectReader(reader);
-      if (conn.error) return write('❌ Erreur connexion : ' + conn.error.message);
-      onReaderConnected(conn.reader);
-    });
-
+    cancelBtn.addEventListener('click', () => annulerPaiement(false));
     resetBtn.addEventListener('click', () => location.reload());
 
-    // 3) Paiement
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (!connectedReader) return write('❌ Connecte un lecteur d’abord.');
+      if (!lecteurChoisi) return write('❌ Aucun lecteur sélectionné.');
+      if (paiementEnCours) return write('⏳ Un encaissement est déjà en cours.');
 
-      write('⏳ Envoi du paiement…');
       // Lecture par référence, et non par nom de champ : les champs élève
       // portent des noms neutres pour tenir le remplissage automatique de
       // Chrome à l'écart de nos suggestions.
@@ -231,45 +226,65 @@
       if (isNaN(montantFloat) || montantFloat <= 0) return write('❌ Montant invalide.');
       const amountInCents = Math.round(montantFloat * 100);
 
-      // 3.1 Créer le PaymentIntent côté serveur
-      const r1 = await fetch('/create-payment-intent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          slug: AGENCE,
-          montant: amountInCents,
-          email: fd.email,
-          firstName: fd.firstName,
-          lastName: fd.lastName
-        })
-      });
-      const pi = await r1.json();
-      if (!r1.ok || !pi.client_secret) {
-        return write('❌ Erreur création PaymentIntent : ' + (pi.error || r1.statusText));
+      payBtn.disabled = true;
+      write('⏳ Envoi au lecteur…');
+
+      try {
+        const r = await fetch('/api/paiement', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            slug: AGENCE,
+            lecteur: lecteurChoisi,
+            montant: amountInCents,
+            email: fd.email,
+            firstName: fd.firstName,
+            lastName: fd.lastName,
+          }),
+        });
+        const data = await r.json();
+        if (!r.ok) {
+          payBtn.disabled = false;
+          return write('❌ ' + (data.error || 'Envoi impossible.'));
+        }
+
+        paiementEnCours = data.paymentIntentId;
+        cancelBtn.classList.remove('hidden');
+        write('💳 Présentez la carte sur le lecteur…');
+
+        const issue = await suivrePaiement(paiementEnCours);
+
+        if (!issue.ok) {
+          await annulerPaiement(true);
+          return write('❌ ' + (issue.message || 'Paiement non abouti.'));
+        }
+
+        if (!issue.dejaCapture) {
+          write('🔒 Carte acceptée. Encaissement…');
+          const c = await fetch('/api/paiement/capture', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ slug: AGENCE, paymentIntentId: paiementEnCours }),
+          });
+          const cd = await c.json();
+          if (!c.ok) {
+            // L'autorisation tient encore : on ne l'annule surtout pas, elle
+            // peut être capturée depuis Stripe. Mieux vaut un encaissement à
+            // terminer à la main qu'un client débité deux fois.
+            return write('⚠️ Carte acceptée mais encaissement incomplet : ' + (cd.error || '') +
+                         '<br>Terminez-le depuis Stripe, ne recommencez pas le paiement.');
+          }
+        }
+
+        paiementEnCours = null;
+        cancelBtn.classList.add('hidden');
+        payBtn.disabled = false;
+        write('🎉 Paiement réussi !');
+        if (window.confetti) confetti();
+      } catch (err) {
+        payBtn.disabled = false;
+        write('❌ ' + err.message);
       }
-
-      // 3.2 Collecte sur le lecteur
-      write('💳 Présentez la carte…');
-      const collect = await terminal.collectPaymentMethod(pi.client_secret);
-      if (collect.error) return write('❌ Erreur lecture carte : ' + collect.error.message);
-
-      // 3.3 Confirmation (autorisation)
-      write('✅ Carte lue. Confirmation…');
-      const confirm = await terminal.processPayment(collect.paymentIntent);
-      if (confirm.error) return write('❌ Erreur confirmation : ' + confirm.error.message);
-
-      // 3.4 Capture côté serveur (capture_method: manual)
-      write('🔒 Capture du paiement…');
-      const r2 = await fetch('/capture-payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: AGENCE, paymentIntentId: confirm.paymentIntent.id })
-      });
-      const cap = await r2.json();
-      if (!r2.ok || cap.error) return write('❌ Erreur capture : ' + (cap.error || r2.statusText));
-
-      write('🎉 Paiement réussi !');
-      if (window.confetti) confetti();
     });
 
     // ─── Autocomplétion élève (CRM) ──────────────────────────────────────────
@@ -418,8 +433,8 @@
       })
       .catch(() => {});
 
-    // Lancer l'init au chargement
-    initTerminal().catch(e => write('❌ Init Terminal : ' + e.message));
+    // Lancer au chargement
+    chargerLecteurs();
   </script>
 </body>
 </html>
