@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Paiement TPE Simply Permis</title>
+  <title>Paiement TPE</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <script src="https://js.stripe.com/terminal/v1/"></script>
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
@@ -37,11 +37,28 @@
     #status { margin-top: 14px; font-weight: 600; min-height: 24px; }
     .muted { color:#6b7280; font-weight: 500; }
     .hidden { display:none; }
+
+    /* Autocomplétion élève : la liste se superpose au formulaire plutôt que de
+       le décaler, sans quoi le champ Montant sauterait sous le doigt pendant
+       la frappe. */
+    .field { position: relative; }
+    .suggest {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
+      margin: 0; padding: 4px; list-style: none; max-height: 232px; overflow-y: auto;
+      background: #fff; border: 1px solid #d7dbe7; border-radius: 8px;
+      box-shadow: 0 10px 20px rgba(0,0,0,.10);
+    }
+    .suggest li { padding: 10px 12px; border-radius: 6px; cursor: pointer; }
+    .suggest li[aria-selected="true"] { background: #edf2ff; }
+    .suggest .nom { font-weight: 600; }
+    .suggest .sub { display: block; color: #6b7280; font-size: 13px; font-weight: 500; }
   </style>
 </head>
 <body>
   <div class="container">
-    <h2>Paiement TPE <strong>Simply Permis</strong></h2>
+    <!-- Le nom de l'agence est renseigné au chargement, jamais écrit en dur :
+         la même caisse sert plusieurs agences. -->
+    <h2>Paiement TPE <strong id="nomAgence"></strong></h2>
 
     <div class="row" style="margin-bottom:12px">
       <label class="muted" for="readerSelect">Lecteur détecté</label>
@@ -49,10 +66,20 @@
       <button id="connectBtn" class="secondary-btn hidden">Connecter le lecteur</button>
     </div>
 
+    <!--
+      Les champs élève portent des noms neutres (`champA/B/C`) et un
+      `autocomplete` que le navigateur ne reconnaît pas. C'est délibéré : avec
+      `name="firstName"` et le libellé « Prénom », Chrome identifie un formulaire
+      d'adresse et affiche SA liste d'adresses enregistrées, qui recouvre nos
+      suggestions d'élèves — une fenêtre native passe toujours au-dessus de la
+      page, on ne peut pas la faire passer dessous. `autocomplete="off"` seul ne
+      suffit pas : Chrome l'ignore sur les formulaires d'adresse.
+      Les valeurs sont relues par référence dans le script, pas par leur nom.
+    -->
     <form id="paymentForm" class="row" autocomplete="off">
-      <input type="text" name="firstName" placeholder="Prénom" required />
-      <input type="text" name="lastName"  placeholder="Nom" required />
-      <input type="email" name="email"     placeholder="Email" required />
+      <div class="field"><input type="text" name="champA" placeholder="Prénom" autocomplete="pas-de-remplissage-auto" required /></div>
+      <div class="field"><input type="text" name="champB" placeholder="Nom" autocomplete="pas-de-remplissage-auto" required /></div>
+      <input type="email" name="champC"    placeholder="Email" autocomplete="pas-de-remplissage-auto" required />
       <input type="text"  name="montant"   placeholder="Montant (€) — ex: 12,50" inputmode="decimal" required />
       <button id="payBtn" type="submit" class="main-btn" disabled>Envoyer au TPE</button>
     </form>
@@ -80,9 +107,23 @@
       console.log('[TPE]', msg.replace(/<[^>]+>/g, ''));
     };
 
+    // L'agence est portée par l'adresse : /simply-permis-marseille,
+    // /getdryv-marseille. Adresse nue = agence par défaut du service, celle dont
+    // les clés sont dans son environnement.
+    const AGENCE = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, '')).toLowerCase();
+
     async function fetchConnectionToken() {
-      const r = await fetch('/connection-token', { method: 'POST' });
-      if (!r.ok) throw new Error('Impossible d’obtenir un connection_token');
+      const r = await fetch('/connection-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: AGENCE })
+      });
+      if (!r.ok) {
+        // Le message du serveur est plus utile que « erreur » : il distingue une
+        // agence non configurée d'une panne Stripe.
+        const detail = await r.json().catch(() => ({}));
+        throw new Error(detail.error || 'Impossible d’obtenir un connection_token');
+      }
       const { secret } = await r.json();
       return secret;
     }
@@ -175,7 +216,15 @@
       if (!connectedReader) return write('❌ Connecte un lecteur d’abord.');
 
       write('⏳ Envoi du paiement…');
-      const fd = Object.fromEntries(new FormData(form).entries());
+      // Lecture par référence, et non par nom de champ : les champs élève
+      // portent des noms neutres pour tenir le remplissage automatique de
+      // Chrome à l'écart de nos suggestions.
+      const fd = {
+        firstName: form.querySelector('input[name="champA"]').value,
+        lastName:  form.querySelector('input[name="champB"]').value,
+        email:     form.querySelector('input[name="champC"]').value,
+        montant:   form.querySelector('input[name="montant"]').value,
+      };
 
       // Accepter virgule ou point
       const montantFloat = parseFloat(String(fd.montant).replace(',', '.'));
@@ -187,6 +236,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          slug: AGENCE,
           montant: amountInCents,
           email: fd.email,
           firstName: fd.firstName,
@@ -213,7 +263,7 @@
       const r2 = await fetch('/capture-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentIntentId: confirm.paymentIntent.id })
+        body: JSON.stringify({ slug: AGENCE, paymentIntentId: confirm.paymentIntent.id })
       });
       const cap = await r2.json();
       if (!r2.ok || cap.error) return write('❌ Erreur capture : ' + (cap.error || r2.statusText));
@@ -221,6 +271,152 @@
       write('🎉 Paiement réussi !');
       if (window.confetti) confetti();
     });
+
+    // ─── Autocomplétion élève (CRM) ──────────────────────────────────────────
+    //
+    // Confort de saisie, rien de plus. Trois règles tenues par ce bloc :
+    //   1. aucune erreur n'est affichée si le CRM ne répond pas — la liste ne
+    //      s'ouvre simplement pas ;
+    //   2. rien n'oblige à choisir une suggestion : un élève inconnu du CRM, mal
+    //      orthographié ou rattaché ailleurs se saisit à la main comme avant ;
+    //   3. `payBtn` n'est jamais touché ici. Il ne dépend que du lecteur
+    //      connecté, exactement comme avant cet ajout.
+    //
+    // Tout est enveloppé dans un try/catch : même une erreur de programmation
+    // dans cette partie ne doit pas empêcher d'encaisser.
+    try {
+      const champPrenom = form.querySelector('input[name="champA"]');
+      const champNom    = form.querySelector('input[name="champB"]');
+      const champEmail  = form.querySelector('input[name="champC"]');
+
+      // Assez court pour suivre la frappe, assez long pour ne pas lancer une
+      // requête par lettre.
+      const DELAI_FRAPPE_MS = 250;
+
+      const liste = document.createElement('ul');
+      liste.className = 'suggest hidden';
+      liste.setAttribute('role', 'listbox');
+
+      let resultats = [];
+      let surligne = -1;
+      let minuteur = null;
+      let requeteEnCours = null;
+
+      const fermer = () => {
+        liste.classList.add('hidden');
+        resultats = [];
+        surligne = -1;
+      };
+
+      const dessiner = () => {
+        liste.innerHTML = resultats.map((e, i) => {
+          const sousTitre = [e.email, e.phone].filter(Boolean).join(' · ');
+          return '<li role="option" data-i="' + i + '" aria-selected="' + (i === surligne) + '">' +
+                 '<span class="nom"></span>' +
+                 (sousTitre ? '<span class="sub"></span>' : '') +
+                 '</li>';
+        }).join('');
+        // Le texte est posé après coup plutôt qu'interpolé : un nom d'élève
+        // contenant des chevrons ne doit pas pouvoir devenir du HTML.
+        liste.querySelectorAll('li').forEach((li, i) => {
+          const e = resultats[i];
+          li.querySelector('.nom').textContent = (e.firstName + ' ' + e.lastName).trim();
+          const sub = li.querySelector('.sub');
+          if (sub) sub.textContent = [e.email, e.phone].filter(Boolean).join(' · ');
+        });
+      };
+
+      const choisir = (i) => {
+        const e = resultats[i];
+        if (!e) return;
+        champPrenom.value = e.firstName || '';
+        champNom.value    = e.lastName || '';
+        // On n'écrase pas un email déjà saisi à la main par un email vide en
+        // base : la caisse a pu le demander à l'élève, il est plus à jour.
+        if (e.email) champEmail.value = e.email;
+        fermer();
+        form.querySelector('input[name="montant"]').focus();
+      };
+
+      const chercher = async (terme, champ) => {
+        if (terme.trim().length < 2) return fermer();
+        // Une frappe rapide lance plusieurs requêtes ; sans cela, une réponse
+        // lente arrivée en retard réafficherait d'anciens résultats.
+        if (requeteEnCours) requeteEnCours.abort();
+        requeteEnCours = new AbortController();
+        try {
+          const r = await fetch(
+            '/api/students?q=' + encodeURIComponent(terme) + '&slug=' + encodeURIComponent(AGENCE),
+            { signal: requeteEnCours.signal }
+          );
+          if (!r.ok) return fermer();
+          const { students } = await r.json();
+          resultats = students || [];
+          surligne = -1;
+          if (!resultats.length) return fermer();
+          champ.parentNode.appendChild(liste);
+          dessiner();
+          liste.classList.remove('hidden');
+        } catch (_) {
+          // Requête annulée, CRM injoignable, réponse illisible : dans tous les
+          // cas on se tait et la saisie manuelle continue.
+          fermer();
+        }
+      };
+
+      [champPrenom, champNom].forEach((champ) => {
+        champ.addEventListener('input', () => {
+          clearTimeout(minuteur);
+          const terme = champ.value;
+          minuteur = setTimeout(() => chercher(terme, champ), DELAI_FRAPPE_MS);
+        });
+
+        champ.addEventListener('keydown', (ev) => {
+          if (liste.classList.contains('hidden')) return;
+          if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+            ev.preventDefault();
+            const pas = ev.key === 'ArrowDown' ? 1 : -1;
+            surligne = (surligne + pas + resultats.length) % resultats.length;
+            dessiner();
+          } else if (ev.key === 'Enter') {
+            // Entrée ne vaut choix que si une suggestion est surlignée. Sinon on
+            // laisse l'événement suivre son cours : sur un formulaire, Entrée
+            // valide, et intercepter cela reviendrait à gêner l'encaissement.
+            if (surligne >= 0) {
+              ev.preventDefault();
+              choisir(surligne);
+            }
+          } else if (ev.key === 'Escape') {
+            fermer();
+          }
+        });
+
+        champ.addEventListener('blur', () => {
+          // Laisser le clic sur une suggestion se produire avant de fermer.
+          setTimeout(fermer, 150);
+        });
+      });
+
+      liste.addEventListener('mousedown', (ev) => {
+        const li = ev.target.closest('li[data-i]');
+        if (!li) return;
+        ev.preventDefault(); // garde le focus, évite un `blur` qui fermerait
+        choisir(Number(li.dataset.i));
+      });
+    } catch (e) {
+      console.warn('[TPE] autocomplétion indisponible :', e.message);
+    }
+
+    // Nom de l'agence dans le titre. Purement cosmétique : en cas d'échec, le
+    // titre reste « Paiement TPE » et la caisse fonctionne normalement.
+    fetch('/api/agence?slug=' + encodeURIComponent(AGENCE))
+      .then(r => r.ok ? r.json() : null)
+      .then(a => {
+        if (!a?.name) return;
+        document.getElementById('nomAgence').textContent = a.name;
+        document.title = 'Paiement TPE ' + a.name;
+      })
+      .catch(() => {});
 
     // Lancer l'init au chargement
     initTerminal().catch(e => write('❌ Init Terminal : ' + e.message));
