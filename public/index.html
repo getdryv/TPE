@@ -125,6 +125,19 @@
     let lecteurChoisi = null;
     let paiementEnCours = null;
 
+    // ─── L'élève choisi dans les suggestions ─────────────────────────────────
+    //
+    // Renseigné UNIQUEMENT quand une suggestion a été cliquée, et remis à zéro
+    // dès que le nom est retouché à la main. C'est le seul vrai danger de ce
+    // rattachement : un identifiant qui survivrait à la correction du nom
+    // inscrirait le paiement sur la fiche de quelqu'un d'autre. Mieux vaut cent
+    // paiements sans élève qu'un seul sur le mauvais.
+    //
+    // Déclaré ici et non dans le bloc d'autocomplétion : l'envoi du paiement,
+    // plus haut, doit pouvoir le lire. Il reste à `null` si ce bloc n'a jamais
+    // fonctionné — la caisse encaisse alors exactement comme avant.
+    let eleveChoisi = null;
+
     const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
 
     /** Charge les lecteurs de l'agence. Sans lecteur, pas d'encaissement possible. */
@@ -240,6 +253,7 @@
             email: fd.email,
             firstName: fd.firstName,
             lastName: fd.lastName,
+            studentId: eleveChoisi,
           }),
         });
         const data = await r.json();
@@ -346,6 +360,9 @@
         if (!e) return;
         champPrenom.value = e.firstName || '';
         champNom.value    = e.lastName || '';
+        // Poser les valeurs par programme ne déclenche aucun `input` : la
+        // remise à zéro ci-dessous ne s'annulera donc pas toute seule.
+        eleveChoisi = e.id || null;
         // On n'écrase pas un email déjà saisi à la main par un email vide en
         // base : la caisse a pu le demander à l'élève, il est plus à jour.
         if (e.email) champEmail.value = e.email;
@@ -381,6 +398,13 @@
 
       [champPrenom, champNom].forEach((champ) => {
         champ.addEventListener('input', () => {
+          // Le nom change à la main : ce n'est plus l'élève choisi. On n'attend
+          // pas de savoir si la nouvelle frappe donnera une suggestion — entre
+          // les deux, un envoi au lecteur partirait avec l'ancien identifiant.
+          //
+          // L'email, lui, ne délie pas : la caisse le corrige couramment parce
+          // que l'élève en donne un plus à jour que celui de sa fiche.
+          eleveChoisi = null;
           clearTimeout(minuteur);
           const terme = champ.value;
           minuteur = setTimeout(() => chercher(terme, champ), DELAI_FRAPPE_MS);

@@ -242,6 +242,113 @@ app.get('/api/students', async (req, res) => {
   }
 });
 
+// ======================= Déclaration des paiements au CRM =======================
+//
+// Le CRM tient une section « Paiements » sur la fiche élève : les chèques et les
+// heures d'examen y figurent depuis longtemps, la carte au comptoir n'y laissait
+// rien. Retrouver ce qu'un élève avait réglé demandait d'ouvrir le tableau de
+// bord Stripe et d'y chercher un nom — celui-là même qui a pu être tapé de
+// travers ici.
+//
+// ─── Pourquoi déclarer depuis la CAPTURE, et pas depuis le webhook ──────────
+// Parce que la capture est le seul moment dont CE serveur est certain : c'est
+// lui qui la demande, et à cet instant il connaît l'agence, le montant
+// réellement pris et l'élève choisi à la caisse.
+//
+// Le webhook ne pouvait pas porter cette responsabilité. Il n'est vérifié que
+// par STRIPE_WEBHOOK_SECRET, une variable UNIQUE du service, alors que chaque
+// agence encaisse sur SON compte Stripe : la migration qui a ouvert le TPE aux
+// agences (20260759000000) note explicitement qu'aucun secret de webhook n'est
+// réglé par agence. Une agence ouverte depuis le CRM n'a donc pas de
+// destination webhook qui pointe ici, et ses paiements ne seraient jamais
+// déclarés.
+//
+// Le webhook déclare quand même, en FILET : il rattrape le seul cas que la
+// capture manque — le paiement déjà capturé quand la caisse l'interroge (état
+// « capture »), où la page saute l'appel à /api/paiement/capture. Les deux
+// chemins peuvent donc annoncer le même paiement, et c'est sans conséquence :
+// le CRM refuse le doublon sur l'identifiant du paiement et répond « déjà
+// enregistré ».
+//
+// ─── Une panne du CRM n'empêche JAMAIS un encaissement ──────────────────────
+// Même règle que l'autocomplétion, et pour la même raison. La déclaration part
+// APRÈS la réponse à la caisse, n'est jamais attendue, et toute défaillance —
+// CRM éteint, lent, mal configuré — se termine dans le journal de ce serveur.
+// Au pire, un paiement manque dans le CRM ; il est dans Stripe, et se rattrape.
+
+// Plus long que la recherche d'élèves (1,2 s) : personne n'attend cette
+// requête, alors qu'un caissier attend ses suggestions.
+const CRM_DECLARATION_TIMEOUT_MS = 4000;
+
+/**
+ * Annonce au CRM un paiement réellement encaissé.
+ *
+ * Ne rejette JAMAIS : appelée sans `await`, une promesse rejetée ferait tomber
+ * le processus (`unhandledRejection`) — une caisse morte pour un CRM enrhumé.
+ *
+ * `slugSecours` sert quand le paiement ne porte pas son agence : les paiements
+ * créés avant cet ajout, ou l'agence par défaut dont le slug peut être vide.
+ */
+async function declarerPaiementAuCrm(pi, slugSecours) {
+  try {
+    const crmBaseUrl = process.env.CRM_BASE_URL?.trim();
+    const internalSecret = process.env.INTERNAL_API_SECRET?.trim();
+    // Rien de configuré : le TPE fonctionne comme avant, sans rien déclarer.
+    if (!crmBaseUrl || !internalSecret) return;
+
+    const meta = pi?.metadata || {};
+    // Un compte Stripe peut servir d'autres applications de la maison — la
+    // boutique en ligne, l'achat d'heures. Seul le comptoir se déclare ici.
+    if (meta.source !== 'terminal') return;
+
+    const agencySlug = (meta.agence || slugSecours || DEFAULT_AGENCY_SLUG || '').trim();
+    // Sans agence, le CRM ne saurait pas qui a le droit de voir la ligne : il
+    // refuserait, et l'appel n'aurait servi qu'à remplir les journaux.
+    if (!agencySlug) return;
+
+    // Le montant CAPTURÉ, jamais l'autorisé : entre les deux, un encaissement
+    // peut très bien ne pas aboutir.
+    const amountCents = Number(pi.amount_received || pi.amount || 0);
+    if (!Number.isInteger(amountCents) || amountCents <= 0) return;
+
+    // La date de Stripe plutôt que l'heure d'ici : elle est la même quel que
+    // soit le chemin de déclaration, donc deux annonces du même paiement
+    // racontent la même chose.
+    const paidAt = pi.created ? new Date(pi.created * 1000).toISOString() : null;
+
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), CRM_DECLARATION_TIMEOUT_MS);
+    try {
+      const r = await fetch(`${crmBaseUrl.replace(/\/+$/, '')}/api/internal/tpe-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-internal-secret': internalSecret,
+        },
+        body: JSON.stringify({
+          agencySlug,
+          stripePaymentIntentId: pi.id,
+          amountCents,
+          // Vide quand le nom a été tapé à la main : le CRM enregistre alors le
+          // paiement sans le rattacher, ce qui vaut mieux que de le perdre.
+          studentId: meta.studentId || null,
+          payerName: meta.fullName || null,
+          payerEmail: meta.email || null,
+          paidAt,
+        }),
+        signal: abort.signal,
+      });
+      if (!r.ok) {
+        console.warn(`[CRM] paiement ${pi.id} non enregistré : HTTP ${r.status}`);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (err) {
+    console.warn('[CRM] déclaration du paiement indisponible :', err.name || err.message);
+  }
+}
+
 // ======================= Encaissement, piloté par le serveur =======================
 //
 // Le navigateur ne parle plus jamais au lecteur. Il demande à notre serveur, qui
@@ -302,7 +409,7 @@ app.post('/api/paiement', async (req, res) => {
     const agence = await exigerAgence(req, res);
     if (!agence) return;
 
-    const { montant, email, firstName, lastName, lecteur } = req.body;
+    const { montant, email, firstName, lastName, lecteur, studentId } = req.body;
 
     if (!Number.isInteger(montant) || montant <= 0) {
       return res.status(400).json({ error: 'Montant invalide.' });
@@ -315,6 +422,16 @@ app.post('/api/paiement', async (req, res) => {
     const lName = (lastName || '').toString().trim();
     const fullName = [fName, lName].filter(Boolean).join(' ').trim();
     const emailSafe = (email || '').toString().trim();
+
+    // L'élève, seulement s'il a été CHOISI dans les suggestions : la caisse
+    // l'oublie dès que le nom est retouché à la main. On ne garde qu'un
+    // identifiant en bonne et due forme — un reste de saisie n'a rien à faire
+    // dans les métadonnées d'un paiement, et le CRM le refuserait de toute
+    // façon. C'est lui qui vérifie ensuite que l'élève est bien de l'agence :
+    // rattacher un paiement au mauvais élève est le seul vrai danger ici.
+    const eleve = (studentId || '').toString().trim();
+    const eleveSafe =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eleve) ? eleve : '';
 
     // Deux clics rapides sur « Envoyer au TPE » ne doivent pas créer deux
     // paiements : la même clé donne le même PaymentIntent.
@@ -340,6 +457,11 @@ app.post('/api/paiement', async (req, res) => {
           lastName: lName,
           fullName,
           email: emailSafe,
+          // Ce qui rattachera le paiement à une fiche du CRM. Porté par le
+          // paiement lui-même et non par une table d'ici : la déclaration au
+          // CRM part de deux endroits, et Stripe est le seul état que les deux
+          // partagent.
+          studentId: eleveSafe,
         },
       },
       { idempotencyKey }
@@ -411,6 +533,11 @@ app.post('/api/paiement/capture', async (req, res) => {
 
     const capture = await agence.stripe.paymentIntents.capture(paymentIntentId);
     res.json({ success: true, montant: capture.amount, id: capture.id });
+
+    // L'argent est pris et la caisse a sa réponse : le CRM est prévenu APRÈS,
+    // sans être attendu. Volontairement sans `await` — voir la section
+    // « Déclaration des paiements au CRM ».
+    declarerPaiementAuCrm(capture, agence.slug);
   } catch (err) {
     console.error('capture :', err.message);
     res.status(500).json({ error: err.message });
@@ -480,6 +607,10 @@ app.post('/webhook/stripe', bodyParser.raw({ type: 'application/json' }), async 
       const amount = ((pi.amount || 0) / 100).toFixed(2);
       const who = pi.metadata?.fullName || '';
       console.log(`✅ ${pi.id} — ${amount} ${(pi.currency || 'eur').toUpperCase()} — ${who}`);
+      // Filet : rattrape le paiement déjà capturé quand la caisse l'interroge,
+      // où l'appel à /api/paiement/capture n'a pas lieu. Un paiement déjà
+      // déclaré par la capture est simplement refusé en doublon par le CRM.
+      declarerPaiementAuCrm(pi, null);
       break;
     }
 
