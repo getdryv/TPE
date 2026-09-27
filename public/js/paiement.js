@@ -32,46 +32,117 @@ let enCours = null; // { pi, lecteur, annulation }
 
 const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export const lecteurPret = () => Boolean(lecteurChoisi);
 export const lecteurActuel = () => lecteurChoisi;
 
 // ─── Lecteurs ────────────────────────────────────────────────────────────────
+//
+// L'état du lecteur choisi est affiché EN PERMANENCE dans l'en-tête (nom +
+// prêt / hors ligne / occupé), relu toutes les 30 secondes et au retour sur
+// l'onglet. « Envoyer au lecteur » n'est actif que s'il est prêt ; sinon le
+// panier dit pourquoi, en mots de comptoir. Une erreur technique (clé Stripe
+// refusée…) n'est JAMAIS montrée brute à une secrétaire : message humain pour
+// tous, détail technique en plus pour un administrateur.
 
-function rendreLecteur(message) {
+const RELECTURE_LECTEURS_MS = 30000;
+const LECTEURS_INDISPONIBLES = 'Lecteur indisponible : vérifiez la configuration Stripe de l\'agence';
+
+let etatLecteurs = 'chargement'; // chargement | ok | erreur
+let detailTechnique = null;       // message brut de l'erreur, pour un administrateur
+let rendu = null;                 // ce que l'en-tête montre déjà (rôle, paiement en cours)
+
+const estAdmin = () => Boolean(magasin && magasin.lire().utilisateur && magasin.lire().utilisateur.role === 'admin');
+const choisi = () => lecteurs.find((x) => x.id === lecteurChoisi) || null;
+
+/** PURE. Pourquoi le lecteur n'est pas prêt, en mots de comptoir ; null s'il l'est. */
+export function raisonLecteur(etat, liste, id) {
+  if (etat === 'chargement') return 'Recherche du lecteur…';
+  if (etat === 'erreur') return `${LECTEURS_INDISPONIBLES}.`;
+  if (!liste.length) return 'Aucun lecteur enregistré pour cette agence : un administrateur doit en ajouter un dans Stripe.';
+  const l = liste.find((x) => x.id === id);
+  if (!l) return 'Choisissez un lecteur.';
+  if (!l.enLigne) return `Lecteur « ${l.label} » hors ligne : vérifiez qu'il est allumé et connecté à Internet.`;
+  if (l.occupe) return `Lecteur « ${l.label} » occupé par un autre paiement : patientez, ou choisissez un autre lecteur.`;
+  return null;
+}
+
+export const raisonLecteurActuel = () => raisonLecteur(etatLecteurs, lecteurs, lecteurChoisi);
+export const lecteurPret = () => raisonLecteurActuel() === null;
+
+function pastilleLecteur() {
+  if (etatLecteurs === 'chargement') return el('span', { class: 'chip grey' }, 'Recherche du lecteur…');
+  if (etatLecteurs === 'erreur') return el('span', { class: 'chip warn' }, LECTEURS_INDISPONIBLES);
+  const l = choisi();
+  if (!l) return el('span', { class: 'chip warn' }, 'Aucun lecteur');
+  const enPaiement = Boolean(magasin && magasin.lire().paiement);
+  if (enPaiement) return el('span', { class: 'chip info' }, `Lecteur « ${l.label} » : paiement en cours`);
+  if (!l.enLigne) return el('span', { class: 'chip warn' }, `Lecteur « ${l.label} » hors ligne`);
+  if (l.occupe) return el('span', { class: 'chip warn' }, `Lecteur « ${l.label} » occupé`);
+  return el('span', { class: 'chip ok' }, `Lecteur « ${l.label} » prêt`);
+}
+
+function rendreLecteur() {
   const zone = document.getElementById('lecteur');
-  if (message) return remplir(zone, el('span', { class: 'chip warn' }, message));
-  const l = lecteurs.find((x) => x.id === lecteurChoisi);
-  const pastille = l
-    ? el('span', { class: `chip ${l.enLigne ? 'ok' : 'warn'}` }, `Lecteur « ${l.label} » ${l.enLigne ? 'prêt' : 'hors ligne'}`)
-    : el('span', { class: 'chip warn' }, 'Aucun lecteur');
-  if (lecteurs.length < 2) return remplir(zone, pastille);
+  const detail = etatLecteurs === 'erreur' && detailTechnique && estAdmin()
+    ? el('span', { class: 'detail-technique' }, `Détail (administrateur) : ${detailTechnique}`)
+    : null;
+  if (lecteurs.length < 2) return remplir(zone, pastilleLecteur(), detail);
   // Quelques lecteurs au plus par agence : une petite liste suffit.
-  const choix = el('select', { 'aria-label': 'Lecteur' }, lecteurs.map((x) =>
-    el('option', { value: x.id }, `${x.label}${x.enLigne ? '' : ' (hors ligne)'}`)));
-  choix.value = lecteurChoisi;
-  choix.addEventListener('change', () => {
-    lecteurChoisi = choix.value;
+  const liste = el('select', { 'aria-label': 'Lecteur', disabled: Boolean(magasin && magasin.lire().paiement) },
+    lecteurs.map((x) => el('option', { value: x.id },
+      `${x.label}${!x.enLigne ? ' (hors ligne)' : x.occupe ? ' (occupé)' : ''}`)));
+  liste.value = lecteurChoisi;
+  liste.addEventListener('change', () => {
+    lecteurChoisi = liste.value;
     rendreLecteur();
     surLecteur();
   });
-  remplir(zone, pastille, choix);
+  remplir(zone, pastilleLecteur(), liste, detail);
 }
 
-/** Charge les lecteurs de l'agence. Sans lecteur, pas d'encaissement carte. */
+/** À chaque changement d'état : l'en-tête ne se redessine que si le rôle ou le paiement en cours change. */
+export function rendreEnteteLecteur(etat) {
+  const cle = `${etat.utilisateur ? etat.utilisateur.role : ''}|${Boolean(etat.paiement)}`;
+  if (cle === rendu) return;
+  rendu = cle;
+  rendreLecteur();
+}
+
+/**
+ * Charge (ou relit) les lecteurs de l'agence. Sans lecteur prêt, pas
+ * d'encaissement carte. Le lecteur choisi est gardé s'il existe toujours.
+ */
 export async function chargerLecteurs() {
-  rendreLecteur('Recherche des lecteurs…');
   const r = await api.lecteurs();
   if (!r.ok) {
-    rendreLecteur(r.message || 'Lecteurs indisponibles');
+    // Réseau coupé : le message de api.js est déjà humain. Sinon, erreur
+    // technique (Stripe, configuration) : gardée pour l'administrateur.
+    etatLecteurs = 'erreur';
+    detailTechnique = r.status === 0 ? null : (r.message || null);
+    lecteurs = [];
+    lecteurChoisi = null;
   } else {
+    etatLecteurs = 'ok';
+    detailTechnique = null;
     lecteurs = (r.data && Array.isArray(r.data.lecteurs)) ? r.data.lecteurs : [];
-    // On présélectionne un lecteur en ligne : proposer d'emblée un lecteur
-    // éteint ferait échouer l'encaissement sans raison apparente.
-    const enLigne = lecteurs.find((l) => l.enLigne);
-    lecteurChoisi = lecteurs.length ? (enLigne || lecteurs[0]).id : null;
-    rendreLecteur(lecteurs.length ? null : 'Aucun lecteur enregistré pour cette agence');
+    // On présélectionne un lecteur prêt : proposer d'emblée un lecteur éteint
+    // ferait échouer l'encaissement sans raison apparente.
+    if (!lecteurs.some((l) => l.id === lecteurChoisi)) {
+      const pret = lecteurs.find((l) => l.enLigne && !l.occupe) || lecteurs.find((l) => l.enLigne);
+      lecteurChoisi = lecteurs.length ? (pret || lecteurs[0]).id : null;
+    }
   }
+  rendreLecteur();
   surLecteur();
+}
+
+/** Relit l'état des lecteurs régulièrement (jamais pendant un paiement : le suivi s'en charge). */
+export function surveillerLecteurs() {
+  const relire = () => {
+    if (document.hidden || (magasin && magasin.lire().paiement)) return;
+    chargerLecteurs();
+  };
+  setInterval(relire, RELECTURE_LECTEURS_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) relire(); });
 }
 
 // ─── Suivi d'un paiement (commun au catalogue et au secours) ─────────────────
@@ -134,7 +205,7 @@ function resultat(etat, extra) {
 /** Envoie au lecteur la part carte du devis en main. */
 export async function envoyerCarte() {
   let etat = magasin.lire();
-  if (!devisAJour(etat) || etat.paiement || !lecteurChoisi) return;
+  if (!devisAJour(etat) || etat.paiement || !lecteurPret()) return;
   const montantAffiche = etat.devis.carteCents;
   const lecteur = lecteurChoisi;
   const e = etat.eleve.eleve;

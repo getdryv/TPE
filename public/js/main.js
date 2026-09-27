@@ -16,14 +16,14 @@ import { creerMagasin, sessionOuverte } from './etat.js';
 import { initEcranEleve, rendreEcranEleve, chargerEleve } from './ecran-eleve.js';
 import { initOnglets, rendreOnglets } from './onglets.js';
 import { initPanier, rendrePanier, redemanderDevis } from './panier.js';
-import { initPaiement, chargerLecteurs } from './paiement.js';
+import { initPaiement, chargerLecteurs, surveillerLecteurs, rendreEnteteLecteur } from './paiement.js';
 import { initIssues, rendreIssues } from './ecrans-issue.js';
 import { initSecours, rendreSecours } from './secours.js';
 
 const magasin = creerMagasin();
 let precedent = null;
 
-const RENDUS = [rendreEcranEleve, rendreOnglets, rendrePanier, rendreIssues, rendreSecours];
+const RENDUS = [rendreEcranEleve, rendreOnglets, rendrePanier, rendreIssues, rendreSecours, rendreEnteteLecteur];
 
 function rendre(etat) {
   document.querySelectorAll('[data-ecran]').forEach((s) => { s.hidden = s.dataset.ecran !== etat.ecran; });
@@ -84,6 +84,7 @@ async function demarrer() {
 
   // Les lecteurs se chargent en parallèle : ils ne décident pas du mode.
   chargerLecteurs();
+  surveillerLecteurs();
 
   // Agence et session en parallèle : l'agence dit si un CRM est déclaré, ce
   // qui décide du bandeau de secours ; la session dit le mode.
@@ -92,6 +93,12 @@ async function demarrer() {
   cadre.initCadre(r.ok && r.data ? r.data.crmUrl : null, {
     // Le CRM vient de créer la fiche demandée par « Créer la fiche ».
     surEleveChoisi: (id) => chargerEleve(id),
+    // Jeton ré-émis par le CRM : on le prend sans rien recharger ; on ne
+    // rouvre la session que si elle attendait justement un jeton valide.
+    surJeton: (j) => {
+      api.poserJeton(j);
+      if (magasin.lire().mode === 'identification_requise') ouvrirSession(null);
+    },
   });
 
   appliquerSession(rs, eleve);

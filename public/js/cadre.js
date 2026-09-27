@@ -41,6 +41,22 @@ export function cheminSur(chemin) {
   return chemin;
 }
 
+/**
+ * PURE. Un message du CRM, validé : `{ type: 'eleve-choisi', studentId }`,
+ * `{ type: 'jeton', jeton }` (jeton ré-émis, remis SANS recharger la caisse),
+ * ou null. Tout le reste est ignoré.
+ */
+export function messageDuCrm(data) {
+  const m = data || {};
+  if (m.type === 'caisse:eleve-choisi' && typeof m.studentId === 'string' && UUID.test(m.studentId)) {
+    return { type: 'eleve-choisi', studentId: m.studentId };
+  }
+  if (m.type === 'caisse:jeton' && typeof m.jeton === 'string' && /^[\w-]+\.[\w-]+$/.test(m.jeton) && m.jeton.length < 2048) {
+    return { type: 'jeton', jeton: m.jeton };
+  }
+  return null;
+}
+
 let crmUrl = null;
 let origineCrm = null;
 
@@ -69,18 +85,19 @@ export function consommerFragment() {
 
 /**
  * Déclare le CRM (adresse publique de /api/agence) et écoute ses messages.
- * `surEleveChoisi(studentId)` est appelé quand le CRM vient de créer la fiche.
+ * `surEleveChoisi(studentId)` est appelé quand le CRM vient de créer la fiche ;
+ * `surJeton(jeton)` quand il a ré-émis le jeton (le cadre n'est plus rechargé
+ * pour ça : un rechargement perdrait le panier en plein encaissement).
  */
-export function initCadre(url, { surEleveChoisi } = {}) {
+export function initCadre(url, { surEleveChoisi, surJeton } = {}) {
   crmUrl = typeof url === 'string' && url ? url.replace(/\/+$/, '') : null;
   origineCrm = origineDe(crmUrl);
   if (!origineCrm) return;
   window.addEventListener('message', (event) => {
     if (event.origin !== origineCrm || event.source !== window.parent) return;
-    const m = event.data || {};
-    if (m.type === 'caisse:eleve-choisi' && typeof m.studentId === 'string' && UUID.test(m.studentId)) {
-      if (surEleveChoisi) surEleveChoisi(m.studentId);
-    }
+    const m = messageDuCrm(event.data);
+    if (m && m.type === 'eleve-choisi' && surEleveChoisi) surEleveChoisi(m.studentId);
+    if (m && m.type === 'jeton' && surJeton) surJeton(m.jeton);
   });
 }
 

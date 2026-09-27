@@ -19,7 +19,7 @@ import {
   requeteDevis, devisAJour, choisirMoyen, saisirEspeces, devisRecu, devisRefuse,
   basculerSecours, identificationRequise,
 } from './etat.js';
-import { envoyerCarte, encaisserEspeces, annulerPaiement, lecteurPret } from './paiement.js';
+import { envoyerCarte, encaisserEspeces, annulerPaiement, lecteurPret, raisonLecteurActuel } from './paiement.js';
 
 // Assez pour laisser finir la frappe des espèces, assez court pour que le prix
 // suive le doigt quand on touche une tuile.
@@ -120,14 +120,43 @@ function construire() {
   n.principal = el('button', { type: 'button', class: 'btn btnp', onclick: agir });
   n.secondaire = el('button', { type: 'button', class: 'btn', onclick: secondaire });
 
+  n.totalBarre = el('span', {}, '—');
+  n.action = el('div', { class: 'panier-action' },
+    el('div', { class: 'barre-total', 'aria-hidden': 'true' }, el('span', {}, 'Total'), n.totalBarre),
+    n.statut, n.principal, n.secondaire);
+
+  // Le corps défile, la barre d'action jamais : le bouton de validation reste
+  // à l'écran (colonne collante sur ordinateur, barre fixe en bas sur mobile).
   remplir(document.getElementById('panier'),
-    el('div', { class: 'panier-titre' }, 'À encaisser'),
-    n.lignes,
-    el('div', { class: 'total' }, el('span', {}, 'Total'), n.total),
-    n.note,
-    el('div', { class: 'muted moyens-titre' }, 'Moyen de paiement'),
-    n.moyens, n.boiteEspeces, n.erreur,
-    el('div', { class: 'boutons-panier' }, n.statut, n.principal, n.secondaire));
+    el('div', { class: 'panier-corps' },
+      el('div', { class: 'panier-titre' }, 'À encaisser'),
+      n.lignes,
+      el('div', { class: 'total' }, el('span', {}, 'Total'), n.total),
+      n.note,
+      el('div', { class: 'muted moyens-titre' }, 'Moyen de paiement'),
+      n.moyens, n.boiteEspeces, n.erreur),
+    n.action);
+  mesurer();
+}
+
+/**
+ * Hauteurs réelles de l'en-tête (il passe à la ligne sur écran moyen) et de
+ * la barre d'action mobile, publiées en variables CSS : la colonne du panier
+ * tient dans la fenêtre, et la page garde la place de la barre fixe.
+ */
+function mesurer() {
+  const entete = document.querySelector('.entete');
+  const publier = () => {
+    const racine = document.documentElement.style;
+    if (entete) racine.setProperty('--entete-h', `${entete.offsetHeight}px`);
+    racine.setProperty('--barre-h', `${n.action.offsetHeight + 16}px`);
+  };
+  publier();
+  if (typeof ResizeObserver === 'function') {
+    const o = new ResizeObserver(publier);
+    if (entete) o.observe(entete);
+    o.observe(n.action);
+  }
 }
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -209,7 +238,7 @@ function rendreBoutons(etat, aJour) {
   const pret = lecteurPret();
   n.principal.disabled = !pret;
   n.principal.textContent = `Envoyer ${euros(d.carteCents)} au lecteur`;
-  if (!pret) n.statut.textContent = 'Aucun lecteur prêt : vérifiez qu\'il est allumé et connecté.';
+  if (!pret) n.statut.textContent = raisonLecteurActuel();
 }
 
 export function rendrePanier(etat) {
@@ -220,6 +249,7 @@ export function rendrePanier(etat) {
   const aJour = devisAJour(etat);
   remplir(n.lignes, lignesDevis(etat));
   n.total.textContent = aJour ? euros(etat.devis.totalCents) : '—';
+  n.totalBarre.textContent = n.total.textContent;
   n.note.textContent = texteNote(etat);
 
   const verrou = Boolean(etat.paiement);

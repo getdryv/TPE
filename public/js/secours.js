@@ -16,7 +16,7 @@
 import * as api from './api.js';
 import * as cadre from './cadre.js';
 import { lireMontant, euros } from './format.js';
-import { suivrePaiement, lecteurActuel } from './paiement.js';
+import { suivrePaiement, lecteurActuel, lecteurPret, raisonLecteurActuel } from './paiement.js';
 
 let retenterCatalogue = () => {};
 
@@ -56,7 +56,7 @@ async function envoyer(ev) {
   ev.preventDefault();
   if (enCours) return dire('Un encaissement est déjà en cours.');
   const lecteur = lecteurActuel();
-  if (!lecteur) return dire('Aucun lecteur sélectionné.', 'erreur');
+  if (!lecteurPret()) return dire(raisonLecteurActuel() || 'Aucun lecteur sélectionné.', 'erreur');
 
   // Lecture par référence, et non par nom métier : les champs portent des
   // noms neutres pour tenir le remplissage automatique de Chrome à l'écart.

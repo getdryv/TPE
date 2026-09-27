@@ -1,10 +1,12 @@
-// ─── Écrans 2 à 6 : bandeau élève, onglets et tuiles ─────────────────────────
+// ─── Écrans 2 à 6 : bandeau élève, onglets et contenus ───────────────────────
 //
-// On TOUCHE une formule, on ne tape jamais son prix. Les prix des tuiles sont
+// On CHOISIT une formule, on ne tape jamais son prix. Les prix affichés sont
 // indicatifs (ceux du catalogue, promotion comprise) : seul le devis du CRM
 // fait foi, et c'est lui que le panier affiche et que le lecteur débite.
 //
-// Jamais de liste déroulante : des tuiles, groupées comme le CRM les envoie.
+// Jamais de liste déroulante : Forfait initial et Heures supp sont des
+// sélecteurs segmentés (selecteurs.js), la prépa une carte, le montant libre
+// des pastilles de motif.
 // L'onglet « Montant libre » n'apparaît que si le CRM le dit (`libre.autorise`,
 // rôle administrateur relu dans le CRM). Ce n'est qu'un masquage : le CRM
 // refuse de toute façon le devis d'un montant libre à une secrétaire.
@@ -13,10 +15,11 @@
 // ne met à jour que la sélection. Reconstruire à chaque frappe ferait perdre le
 // focus du champ en cours de saisie (montant libre).
 
-import { el, remplir, euros, eurosCourts, heures, dateCourte, nomComplet } from './format.js';
+import { el, remplir, heures, dateCourte, nomComplet } from './format.js';
 import {
-  changerEleve, choisirOnglet, choisirFormule, basculerAccompagnementSeul, saisirLibre,
+  changerEleve, choisirOnglet, basculerAccompagnementSeul, saisirLibre,
 } from './etat.js';
+import { initSelecteurs, rendreForfait, rendreHeuresSupp } from './selecteurs.js';
 
 const LIBELLES = { forfait: 'Forfait initial', heures_supp: 'Heures supp', prepa: 'Prépa permis', libre: 'Montant libre' };
 
@@ -29,27 +32,6 @@ let rendu = { eleveId: null, onglet: null };
 const $ = (id) => document.getElementById(id);
 
 // ─── Pièces ──────────────────────────────────────────────────────────────────
-
-function prixTuile(t) {
-  if (t.promo) {
-    return [
-      el('span', {}, el('s', {}, euros(t.prixCents)), ' ', el('b', {}, euros(t.promo.prixRemiseCents))),
-      el('span', { class: 'chip promo' }, `Promo en cours · ${eurosCourts(-t.promo.remiseCents)}`),
-    ];
-  }
-  return el('span', { class: 'muted' }, euros(t.prixCents));
-}
-
-function tuile(type, t) {
-  return el('button', {
-    type: 'button', class: 'tuile', 'data-formule': t.formuleId, 'aria-pressed': 'false',
-    onclick: () => magasin.appliquer(choisirFormule, type, t.formuleId),
-  }, el('b', {}, t.nom), prixTuile(t));
-}
-
-function grille(type, tuiles, classe = 'tuiles') {
-  return el('div', { class: classe }, tuiles.map((t) => tuile(type, t)));
-}
 
 function bandeauEleve(ec) {
   const e = ec.eleve;
@@ -82,23 +64,9 @@ function contenuForfait(ec) {
     blocs.push(el('div', { class: 'encart encart-warn' },
       `Un forfait est déjà enregistré : ${ec.eleve.forfaitPaye}. Un nouveau forfait sera encaissé et tracé, sans remplacer celui de la fiche.`));
   }
-  const groupes = (ec.forfaits || []).filter((g) => g.formules && g.formules.length);
-  if (!groupes.length) blocs.push(el('p', { class: 'muted petit' }, 'Aucun forfait au catalogue de l\'agence.'));
-  for (const g of groupes) blocs.push(el('div', { class: 'cat' }, g.titre), grille('forfait', g.formules));
+  // Rempli par `rendreForfait` (selecteurs.js), à chaque changement d'état.
+  blocs.push(el('div', { id: 'selecteursForfait', class: 'selecteurs' }));
   return blocs;
-}
-
-function contenuHeuresSupp(ec) {
-  const hs = ec.heuresSupp || { famille: '', packs: [] };
-  const famille = hs.famille === 'Moto' ? 'moto' : 'voiture';
-  if (!hs.packs || !hs.packs.length) {
-    return [el('p', { class: 'muted petit' }, `Aucun pack d'heures ${famille} au catalogue de l'agence.`)];
-  }
-  return [
-    el('div', { class: 'cat' }, `Packs d'heures · ${famille}`),
-    grille('heures_supp', hs.packs, 'tuiles tuiles-4'),
-    el('p', { class: 'muted petit' }, 'Seuls les packs de la boîte de l\'élève sont proposés.'),
-  ];
 }
 
 function textePreconisation(p) {
@@ -195,7 +163,7 @@ function contenuLibre(etat) {
 // ─── Rendu ───────────────────────────────────────────────────────────────────
 
 function contenu(etat) {
-  if (etat.onglet === 'heures_supp') return contenuHeuresSupp(etat.eleve);
+  if (etat.onglet === 'heures_supp') return [el('div', { id: 'selecteursHeures', class: 'selecteurs' })];
   if (etat.onglet === 'prepa') return contenuPrepa(etat.eleve);
   if (etat.onglet === 'libre') return contenuLibre(etat);
   return contenuForfait(etat.eleve);
@@ -204,9 +172,10 @@ function contenu(etat) {
 /** Sélection et verrous seulement : aucun nœud recréé. */
 function majSelection(etat) {
   const p = etat.produit || {};
-  document.querySelectorAll('#contenuOnglet [data-formule]').forEach((b) => {
-    b.setAttribute('aria-pressed', String(p.formuleId === b.dataset.formule));
-  });
+  const forfait = $('selecteursForfait');
+  if (forfait) rendreForfait(forfait, etat);
+  const packs = $('selecteursHeures');
+  if (packs) rendreHeuresSupp(packs, etat);
   document.querySelectorAll('#contenuOnglet [data-motif]').forEach((b) => {
     b.setAttribute('aria-pressed', String(p.motif === b.dataset.motif));
   });
@@ -216,7 +185,7 @@ function majSelection(etat) {
   if (libelle) libelle.textContent = p.precisionObligatoire ? 'Précision (obligatoire)' : 'Précision';
   // Pendant un paiement, le panier est figé : c'est lui qui est sur le lecteur.
   const verrou = Boolean(etat.paiement);
-  document.querySelectorAll('.catalogue [data-verrou], .catalogue [data-formule]').forEach((b) => { b.disabled = verrou; });
+  document.querySelectorAll('.catalogue [data-verrou]').forEach((b) => { b.disabled = verrou; });
 }
 
 export function rendreOnglets(etat) {
@@ -242,4 +211,5 @@ export function rendreOnglets(etat) {
 
 export function initOnglets(m) {
   magasin = m;
+  initSelecteurs(m);
 }
