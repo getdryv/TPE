@@ -6,10 +6,9 @@
 //
 // Jamais de liste déroulante : Forfait initial et Heures supp sont des
 // sélecteurs segmentés (selecteurs.js), la prépa une carte, le montant libre
-// des pastilles de motif.
-// L'onglet « Montant libre » n'apparaît que si le CRM le dit (`libre.autorise`,
-// rôle administrateur relu dans le CRM). Ce n'est qu'un masquage : le CRM
-// refuse de toute façon le devis d'un montant libre à une secrétaire.
+// un montant et un commentaire facultatif.
+// L'onglet « Montant libre » est ouvert à tout compte qui encaisse, sans motif
+// (décision du 27/09/2026) : le CRM trace le nom de la personne.
 //
 // Le contenu n'est reconstruit que quand l'élève ou l'onglet change ; sinon on
 // ne met à jour que la sélection. Reconstruire à chaque frappe ferait perdre le
@@ -47,9 +46,7 @@ function bandeauEleve(ec) {
 }
 
 function barreOnglets(etat) {
-  const visibles = ['forfait', 'heures_supp', 'prepa'];
-  if (etat.eleve.libre && etat.eleve.libre.autorise) visibles.push('libre');
-  return visibles.map((o) => el('button', {
+  return ['forfait', 'heures_supp', 'prepa', 'libre'].map((o) => el('button', {
     type: 'button', role: 'tab', class: 'onglet', id: `onglet-${o}`, 'data-verrou': '',
     'aria-selected': String(etat.onglet === o),
     onclick: () => magasin.appliquer(choisirOnglet, o),
@@ -123,8 +120,13 @@ function contenuPrepa(ec) {
   return blocs;
 }
 
+/**
+ * Montant libre : ouvert à tout compte qui encaisse et SANS MOTIF (décision du
+ * 27/09/2026). Le montant, un commentaire facultatif (jamais obligatoire) —
+ * repris dans le libellé, la liste des encaissements et le ticket ; le CRM
+ * trace qui a encaissé.
+ */
 function contenuLibre(etat) {
-  const motifs = (etat.eleve.libre && etat.eleve.libre.motifs) || [];
   const p = etat.produit || {};
   const montant = el('input', {
     class: 'in in-montant', type: 'text', name: 'champL', inputmode: 'decimal', id: 'libreMontant',
@@ -133,30 +135,22 @@ function contenuLibre(etat) {
   montant.value = p.montantSaisie || '';
   montant.addEventListener('input', () => magasin.appliquer(saisirLibre, { montantSaisie: montant.value }));
 
-  const precision = el('input', {
-    class: 'in', type: 'text', name: 'champP', maxlength: '80', id: 'librePrecision', 'data-verrou': '',
-    autocomplete: 'pas-de-remplissage-auto', placeholder: 'Ex. : solde de la leçon du 12/09',
+  const note = el('input', {
+    class: 'in', type: 'text', name: 'champP', maxlength: '80', id: 'libreNote', 'data-verrou': '',
+    autocomplete: 'pas-de-remplissage-auto', placeholder: 'Ex. : n° de facture rattachée, solde de la leçon du 12/09…',
   });
-  precision.value = p.precision || '';
-  precision.addEventListener('input', () => magasin.appliquer(saisirLibre, { precision: precision.value }));
-
-  const pills = motifs.map((m) => el('button', {
-    type: 'button', class: 'pill', 'data-motif': m.code, 'aria-pressed': 'false', 'data-verrou': '',
-    onclick: () => magasin.appliquer(saisirLibre, { motif: m.code, precisionObligatoire: Boolean(m.precisionObligatoire) }),
-  }, m.libelle));
+  note.value = p.note || '';
+  note.addEventListener('input', () => magasin.appliquer(saisirLibre, { note: note.value }));
 
   return [
     el('div', { class: 'encart encart-warn', style: 'display:flex;gap:10px;align-items:center;flex-wrap:wrap' },
       el('span', { class: 'chip warn' }, 'Hors catalogue'),
-      el('span', {}, 'Pour ce qui n\'existe pas dans les autres onglets. Chaque montant libre est tracé avec votre nom et son motif.')),
+      el('span', {}, 'Pour ce qui n\'existe pas dans les autres onglets. Chaque montant libre est enregistré avec votre nom.')),
     el('div', { class: 'carte carte-libre' },
       el('label', { class: 'champ', for: 'libreMontant' }, 'Montant',
         el('span', { class: 'ligne-montant' }, montant, el('span', { 'aria-hidden': 'true' }, '€'))),
-      el('div', { class: 'gras' }, 'Motif ', el('span', { class: 'muted', style: 'font-weight:400' }, '(obligatoire)')),
-      el('div', { class: 'pills', role: 'group', 'aria-label': 'Motif' }, pills),
-      el('label', { class: 'champ', for: 'librePrecision' },
-        el('span', { id: 'librePrecisionLibelle' }, 'Précision'), precision)),
-    el('p', { class: 'muted petit' }, 'Réservé aux administrateurs : une secrétaire ne voit pas cet onglet.'),
+      el('label', { class: 'champ', for: 'libreNote' },
+        el('span', {}, 'Commentaire ', el('span', { class: 'muted', style: 'font-weight:400' }, '(facultatif)')), note)),
   ];
 }
 
@@ -176,13 +170,8 @@ function majSelection(etat) {
   if (forfait) rendreForfait(forfait, etat);
   const packs = $('selecteursHeures');
   if (packs) rendreHeuresSupp(packs, etat);
-  document.querySelectorAll('#contenuOnglet [data-motif]').forEach((b) => {
-    b.setAttribute('aria-pressed', String(p.motif === b.dataset.motif));
-  });
   const seul = $('accompagnementSeul');
   if (seul) seul.setAttribute('aria-pressed', String(Boolean(p.accompagnementSeul)));
-  const libelle = $('librePrecisionLibelle');
-  if (libelle) libelle.textContent = p.precisionObligatoire ? 'Précision (obligatoire)' : 'Précision';
   // Pendant un paiement, le panier est figé : c'est lui qui est sur le lecteur.
   const verrou = Boolean(etat.paiement);
   document.querySelectorAll('.catalogue [data-verrou]').forEach((b) => { b.disabled = verrou; });

@@ -168,6 +168,18 @@ a:hover { color: var(--primaire-fonce); }
 .retenu-prix { font-size: 18px; }
 .retenu-prix s { color: var(--secondaire); font-size: 15px; }
 
+/* Case à cocher d'une option du panier (accompagnement sous un pack) : toute
+   la carte est cliquable, cochée = bordure bleue et fond de sélection. */
+.case-option {
+  display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border: 1px solid var(--bordure);
+  border-radius: 12px; background: #fff; cursor: pointer; max-width: 560px;
+}
+.case-option:has(input:checked) { border: 2px solid var(--primaire); background: var(--selection); padding: 13px 15px; }
+.case-option input { width: 20px; height: 20px; margin: 1px 0 0; flex-shrink: 0; accent-color: var(--primaire); cursor: pointer; }
+.case-option-texte { display: flex; flex-direction: column; gap: 2px; }
+.case-option-grisee { background: var(--fond); cursor: not-allowed; }
+.case-option-grisee input { cursor: not-allowed; }
+
 .carte-prepa { padding: 18px 20px; display: flex; flex-direction: column; gap: 6px; }
 .l { display: flex; justify-content: space-between; gap: 12px; font-size: 15px; padding: 6px 0; }
 .l-total { font-weight: 700; border-top: 1px solid var(--gris); margin-top: 8px; }

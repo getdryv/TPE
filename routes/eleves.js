@@ -57,7 +57,7 @@ router.get('/api/students', async (req, res) => {
  * GET /api/caisse/eleve?slug=…&id=<uuid>
  *
  * Tout ce que la caisse affiche pour un élève : tuiles du catalogue (promotion
- * comprise), packs de sa boîte, prépa permis, montant libre (admin seulement).
+ * comprise), packs de sa boîte, prépa permis, montant libre.
  * Les prix y sont indicatifs : seul le devis fait foi.
  *
  * CRM muet : 503 `{ crm: 'indisponible' }`, que la page traduit en écran

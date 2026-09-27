@@ -30,8 +30,6 @@ const MOYENS = [['carte', 'Carte (TPE)'], ['mixte', 'Espèces + carte'], ['espec
 const MANQUE = {
   produit: 'Touchez une formule',
   montant: 'Saisissez le montant',
-  motif: 'Choisissez le motif',
-  precision: 'Précisez le motif',
   especes: 'Saisissez le montant reçu en espèces',
 };
 
@@ -197,6 +195,9 @@ function lignesDevis(etat) {
 function texteNote(etat) {
   if (etat.onglet === 'prepa') return 'Payer ici marque la prépa comme réglée : les relances par e-mail s\'arrêtent, comme avec le lien de paiement.';
   if (etat.onglet === 'libre') return 'Au comptoir, paiement en une fois.';
+  if (etat.onglet === 'heures_supp' && etat.accompagnement) {
+    return 'L\'accompagnement payé ici vaut pour le passage en cours : les relances s\'arrêtent, comme avec la prépa.';
+  }
   return 'Au comptoir, paiement en une fois. Prix fixé par le catalogue : rien à saisir.';
 }
 

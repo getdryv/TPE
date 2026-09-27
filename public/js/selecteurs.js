@@ -15,7 +15,7 @@
 // même bouton radio — sinon les flèches perdraient leur place à chaque geste.
 
 import { el, remplir, euros, eurosCourts, heures } from './format.js';
-import { choisirFormule } from './etat.js';
+import { choisirFormule, cocherAccompagnement } from './etat.js';
 import { lignesCascade, resoudre, selectionDe, selectionInitiale, choisir } from './cascade.js';
 
 const PERMIS = { voiture: 'Voiture', moto: 'Moto', autre: 'Autre' };
@@ -61,7 +61,7 @@ function retenu(t, precision) {
     el('p', { class: 'muted petit' }, precision));
 }
 
-/** Reconstruit `zone` seulement si ce qu'elle montre a changé ; rend le focus au même radio. */
+/** Reconstruit `zone` seulement si ce qu'elle montre a changé ; rend le focus au même champ. */
 function redessiner(zone, signature, construire) {
   if (signatures.get(zone) === signature) return;
   signatures.set(zone, signature);
@@ -69,7 +69,7 @@ function redessiner(zone, signature, construire) {
   const focus = actif && zone.contains(actif) && actif.name ? { name: actif.name, value: actif.value } : null;
   remplir(zone, construire());
   if (!focus) return;
-  const cible = [...zone.querySelectorAll('input[type="radio"]')]
+  const cible = [...zone.querySelectorAll('input')]
     .find((r) => r.name === focus.name && r.value === focus.value && !r.disabled);
   if (cible) cible.focus();
 }
@@ -129,6 +129,27 @@ function texteVehicule(etat) {
   return `${PERMIS[permis]}${boite}`;
 }
 
+/**
+ * « Ajouter l'accompagnement à l'examen (59,90 €) » : pour que la secrétaire
+ * n'oublie pas de le facturer quand l'élève paie ses heures avant l'examen.
+ * Décochée par défaut ; absente sans tarif sur la fiche agence ; grisée s'il
+ * est déjà réglé pour le passage en cours. Le prix affiché est celui du
+ * CRM ; le total du panier reste celui du devis signé.
+ */
+function caseAccompagnement(offre, coche, verrou) {
+  if (!offre) return null;
+  const deja = Boolean(offre.dejaRegle);
+  const boite = el('input', { type: 'checkbox', id: 'accompagnementHeures', name: 'case-accompagnement', checked: coche && !deja, disabled: deja || verrou });
+  boite.addEventListener('change', () => magasin.appliquer(cocherAccompagnement, boite.checked));
+  return el('label', { class: `case-option${deja ? ' case-option-grisee' : ''}`, for: 'accompagnementHeures' },
+    boite,
+    el('span', { class: 'case-option-texte' },
+      el('span', { class: 'gras' }, `Ajouter l'accompagnement à l'examen (${euros(offre.tarifCents)})`),
+      el('span', { class: 'muted petit' }, deja
+        ? 'Déjà réglé pour le passage en cours.'
+        : 'Réglé ici, il vaut pour le passage en cours : les relances s\'arrêtent.')));
+}
+
 export function rendreHeuresSupp(zone, etat) {
   const packs = (etat.eleve.heuresSupp && etat.eleve.heuresSupp.packs) || [];
   const choisi = packs.find((t) => t.formuleId === produitDe(etat, 'heures_supp')) || null;
@@ -137,8 +158,10 @@ export function rendreHeuresSupp(zone, etat) {
   const compte = new Map();
   packs.forEach((t) => compte.set(t.heures, (compte.get(t.heures) || 0) + 1));
   const libelle = (t) => (t.heures && compte.get(t.heures) === 1 ? heures(t.heures) : t.nom);
+  const offre = (etat.eleve.heuresSupp && etat.eleve.heuresSupp.accompagnement) || null;
+  const coche = Boolean(etat.accompagnement);
 
-  redessiner(zone, JSON.stringify([choisi && choisi.formuleId, verrou, packs.length]), () => [
+  redessiner(zone, JSON.stringify([choisi && choisi.formuleId, verrou, packs.length, coche, offre]), () => [
     el('div', { class: 'cascade' },
       el('div', { class: 'ligne-seg' },
         el('span', { class: 'ligne-seg-libelle' }, 'Véhicule'),
@@ -156,6 +179,7 @@ export function rendreHeuresSupp(zone, etat) {
       : choisi
         ? retenu(choisi, 'Prix comptant, payé en une fois. Seuls les packs du véhicule de l\'élève sont proposés.')
         : el('p', { class: 'muted petit' }, 'Choisissez un pack : son prix s\'affiche ici.'),
+    packs.length ? caseAccompagnement(offre, coche, verrou) : null,
   ]);
 }
 

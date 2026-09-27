@@ -22,6 +22,7 @@ function panierVide() {
     eleve: null,          // EleveCaisse (ARCHITECTURE.md § 10.1)
     onglet: 'forfait',
     produit: null,        // voir `requeteDevis` pour les formes possibles
+    accompagnement: false, // Heures supp : case « accompagnement à l'examen » cochée
     moyen: 'carte',
     especesSaisie: '',    // texte tel que tapé ; converti à la demande
     version: 0,
@@ -68,16 +69,17 @@ export function requeteDevis(etat) {
   let produit;
   if (p.type === 'forfait' || p.type === 'heures_supp') {
     produit = { type: p.type, formuleId: p.formuleId };
+    // Un DRAPEAU, jamais un montant : le CRM ajoute la ligne à son tarif et signe le total.
+    if (p.type === 'heures_supp' && etat.accompagnement) produit.accompagnement = true;
   } else if (p.type === 'prepa') {
     produit = p.accompagnementSeul ? { type: 'prepa', accompagnementSeul: true } : { type: 'prepa' };
   } else if (p.type === 'libre') {
+    // Sans motif (décision du 27/09/2026) : le montant, et le commentaire s'il y en a un.
     const montantCents = lireMontant(p.montantSaisie);
     if (!montantCents) return { manque: 'montant' };
-    if (!p.motif) return { manque: 'motif' };
-    const precision = String(p.precision || '').trim();
-    if (p.precisionObligatoire && !precision) return { manque: 'precision' };
-    produit = { type: 'libre', montantCents, motif: p.motif };
-    if (precision) produit.precision = precision;
+    produit = { type: 'libre', montantCents };
+    const note = String(p.note || '').trim();
+    if (note) produit.note = note;
   } else {
     return { manque: 'produit' };
   }
@@ -161,7 +163,6 @@ export function changerEleve(etat) {
  */
 export function choisirOnglet(etat, onglet) {
   if (!ONGLETS.includes(onglet) || onglet === etat.onglet) return etat;
-  if (onglet === 'libre' && !(etat.eleve && etat.eleve.libre && etat.eleve.libre.autorise)) return etat;
   let produit = null;
   if (onglet === 'prepa') {
     const prepa = etat.eleve && etat.eleve.prepa;
@@ -170,9 +171,9 @@ export function choisirOnglet(etat, onglet) {
     }
   }
   if (onglet === 'libre') {
-    produit = { type: 'libre', montantSaisie: '', motif: null, precision: '', precisionObligatoire: false };
+    produit = { type: 'libre', montantSaisie: '', note: '' };
   }
-  return panierModifie(etat, { onglet, produit });
+  return panierModifie(etat, { onglet, produit, accompagnement: false });
 }
 
 /** Une tuile touchée : forfait ou pack d'heures. */
@@ -183,6 +184,17 @@ export function choisirFormule(etat, type, formuleId) {
   return panierModifie(etat, { produit: { type, formuleId } });
 }
 
+/**
+ * Heures supp : case « Ajouter l'accompagnement à l'examen ». Seulement si le
+ * CRM la propose (tarif sur la fiche agence) et pas déjà réglée pour ce passage.
+ */
+export function cocherAccompagnement(etat, coche) {
+  const offre = etat.eleve && etat.eleve.heuresSupp && etat.eleve.heuresSupp.accompagnement;
+  const valeur = Boolean(coche) && Boolean(offre) && !offre.dejaRegle;
+  if (valeur === Boolean(etat.accompagnement)) return etat;
+  return panierModifie(etat, { accompagnement: valeur });
+}
+
 /** Prépa : bascule « heures + accompagnement » ↔ « accompagnement seul ». */
 export function basculerAccompagnementSeul(etat, seul) {
   const p = etat.produit;
@@ -190,7 +202,7 @@ export function basculerAccompagnementSeul(etat, seul) {
   return panierModifie(etat, { produit: { type: 'prepa', accompagnementSeul: Boolean(seul) } });
 }
 
-/** Montant libre : champs saisis (montant, motif, précision). */
+/** Montant libre : champs saisis (montant, commentaire facultatif). */
 export function saisirLibre(etat, champs) {
   const p = etat.produit;
   if (!p || p.type !== 'libre') return etat;
