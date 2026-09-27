@@ -2,7 +2,9 @@
 node_modules/
 
 # ignorer les fichiers d'environnement avec tes clés Stripe
+# (`.env*` couvre aussi .env.local, .env.production… : aucune clé dans git)
 .env
+.env*
 
 # fichiers système inutiles
 .DS_Store

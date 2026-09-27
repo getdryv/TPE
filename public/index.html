@@ -2,463 +2,116 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <title>Paiement TPE</title>
+  <!-- Complété au chargement par le nom de l'agence : « Caisse Simply Permis Marseille ». -->
+  <title>Caisse</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <!-- Le SDK Stripe Terminal a été retiré : la caisse ne parle plus au lecteur,
-       c'est le serveur qui demande à Stripe de le piloter. -->
-  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
-  <style>
-    :root { --brand:#635bff; --bg:#f6f9fc; }
-    * { box-sizing: border-box; }
-    body {
-      font-family: 'Montserrat', sans-serif;
-      background-color: var(--bg);
-      display: grid;
-      place-items: center;
-      min-height: 100vh;
-      margin: 0;
-      padding: 16px;
-    }
-    .container {
-      background: #fff; border-radius: 12px; padding: 28px;
-      box-shadow: 0 10px 20px rgba(0,0,0,.08); width: 100%; max-width: 440px;
-    }
-    h2 { color: var(--brand); margin: 0 0 16px; text-align: center; }
-    .row { display: grid; gap: 10px; }
-    input, select, button {
-      font-family: inherit; font-size: 16px; padding: 12px 14px; border-radius: 8px;
-      border: 1px solid #d7dbe7; width: 100%;
-    }
-    input { background:#edf2ff; }
-    button { cursor: pointer; font-weight: 600; border: none; transition: transform .08s ease; }
-    button:active { transform: translateY(1px); }
-    .main-btn { background: var(--brand); color: #fff; }
-    .secondary-btn { background:#fff; color: var(--brand); border:2px solid var(--brand); }
-    #status { margin-top: 14px; font-weight: 600; min-height: 24px; }
-    .muted { color:#6b7280; font-weight: 500; }
-    .hidden { display:none; }
-
-    /* Autocomplétion élève : la liste se superpose au formulaire plutôt que de
-       le décaler, sans quoi le champ Montant sauterait sous le doigt pendant
-       la frappe. */
-    .field { position: relative; }
-    .suggest {
-      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20;
-      margin: 0; padding: 4px; list-style: none; max-height: 232px; overflow-y: auto;
-      background: #fff; border: 1px solid #d7dbe7; border-radius: 8px;
-      box-shadow: 0 10px 20px rgba(0,0,0,.10);
-    }
-    .suggest li { padding: 10px 12px; border-radius: 6px; cursor: pointer; }
-    .suggest li[aria-selected="true"] { background: #edf2ff; }
-    .suggest .nom { font-weight: 600; }
-    .suggest .sub { display: block; color: #6b7280; font-size: 13px; font-weight: 500; }
-  </style>
+  <!-- Chemins absolus : la page est servie sous /<slug>. La caisse ne parle
+       jamais au lecteur : c'est le serveur qui demande à Stripe de le piloter. -->
+  <link rel="stylesheet" href="/caisse.css" />
+  <script type="module" src="/js/main.js"></script>
 </head>
 <body>
-  <div class="container">
-    <!-- Le nom de l'agence est renseigné au chargement, jamais écrit en dur :
-         la même caisse sert plusieurs agences. -->
-    <h2>Paiement TPE <strong id="nomAgence"></strong></h2>
+  <header class="entete">
+    <span class="entete-titre">Caisse</span>
+    <!-- Nom de l'agence renseigné au chargement, jamais écrit en dur : la même
+         caisse sert plusieurs agences. -->
+    <span class="muted" id="nomAgence"></span>
+    <span class="espaceur"></span>
+    <span id="lecteur" class="entete-lecteur"></span>
+    <span class="muted entete-qui" id="quiEncaisse"></span>
+  </header>
 
-    <div class="row" style="margin-bottom:12px">
-      <label class="muted" for="readerSelect">Lecteur</label>
-      <select id="readerSelect"></select>
-    </div>
-
-    <!--
-      Les champs élève portent des noms neutres (`champA/B/C`) et un
-      `autocomplete` que le navigateur ne reconnaît pas. C'est délibéré : avec
-      `name="firstName"` et le libellé « Prénom », Chrome identifie un formulaire
-      d'adresse et affiche SA liste d'adresses enregistrées, qui recouvre nos
-      suggestions d'élèves — une fenêtre native passe toujours au-dessus de la
-      page, on ne peut pas la faire passer dessous. `autocomplete="off"` seul ne
-      suffit pas : Chrome l'ignore sur les formulaires d'adresse.
-      Les valeurs sont relues par référence dans le script, pas par leur nom.
-    -->
-    <form id="paymentForm" class="row" autocomplete="off">
-      <div class="field"><input type="text" name="champA" placeholder="Prénom" autocomplete="pas-de-remplissage-auto" required /></div>
-      <div class="field"><input type="text" name="champB" placeholder="Nom" autocomplete="pas-de-remplissage-auto" required /></div>
-      <input type="email" name="champC"    placeholder="Email" autocomplete="pas-de-remplissage-auto" required />
-      <input type="text"  name="montant"   placeholder="Montant (€) — ex: 12,50" inputmode="decimal" required />
-      <button id="payBtn" type="submit" class="main-btn" disabled>Envoyer au TPE</button>
-    </form>
-
-    <button id="cancelBtn" class="secondary-btn hidden" style="margin-top:10px">Annuler l'encaissement</button>
-    <button id="resetBtn" class="secondary-btn" style="margin-top:10px">Nouvelle transaction</button>
-    <div id="status" class="muted"></div>
+  <div id="bandeauSecours" class="bandeau-secours" hidden>
+    <b>Le CRM ne répond pas.</b> Le catalogue est indisponible : seul le montant libre reste possible.
+    Le paiement sera rattaché à la fiche de l'élève dès que le CRM reviendra.
   </div>
 
-  <script>
-    const statusEl = document.getElementById('status');
-    const form = document.getElementById('paymentForm');
-    const readerSelect = document.getElementById('readerSelect');
-    const resetBtn = document.getElementById('resetBtn');
-    const cancelBtn = document.getElementById('cancelBtn');
-    const payBtn = document.getElementById('payBtn');
+  <main>
+    <!-- Chargement -->
+    <section data-ecran="chargement" class="ecran-centre">
+      <p class="muted" id="messageChargement">Ouverture de la caisse…</p>
+    </section>
 
-    const write = (msg) => {
-      statusEl.innerHTML = msg;
-      console.log('[TPE]', msg.replace(/<[^>]+>/g, ''));
-    };
+    <!-- 1 · Choisir l'élève -->
+    <section data-ecran="eleve" class="ecran-centre" hidden>
+      <div class="colonne-eleve">
+        <h1>Pour quel élève ?</h1>
+        <div id="rappelEspeces" class="encart encart-warn" role="status" hidden></div>
+        <label for="recherche" class="muted etiquette-recherche">Nom, e-mail ou téléphone</label>
+        <!-- Nom de champ neutre et autocomplétion inconnue du navigateur : sinon
+             Chrome reconnaît un formulaire de contact et affiche SA liste, qui
+             recouvre nos résultats (une fenêtre native passe toujours dessus). -->
+        <input id="recherche" name="champR" type="text" class="champ-recherche"
+               autocomplete="pas-de-remplissage-auto" spellcheck="false"
+               role="combobox" aria-expanded="false" aria-controls="resultats" aria-autocomplete="list" />
+        <p id="etatRecherche" class="muted petit" role="status"></p>
+        <div id="resultats" class="carte liste-eleves" role="listbox" aria-label="Élèves trouvés" hidden></div>
+        <div class="carte encart-creation">
+          <div class="grandit">
+            <div class="gras">L'élève n'est pas dans la base ?</div>
+            <div class="muted petit">On crée sa fiche en 30 secondes, puis on revient ici avec lui déjà sélectionné.</div>
+          </div>
+          <button type="button" class="btn" id="creerFiche">Créer la fiche</button>
+        </div>
+      </div>
+    </section>
 
-    // L'agence est portée par l'adresse : /simply-permis-marseille,
-    // /getdryv-marseille. Adresse nue = agence par défaut du service, celle dont
-    // les clés sont dans son environnement.
-    const AGENCE = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, '')).toLowerCase();
+    <!-- 2 à 6 · Onglets et panier -->
+    <section data-ecran="panier" class="ecran-panier" hidden>
+      <div class="catalogue">
+        <div id="bandeauEleve" class="bandeau-eleve"></div>
+        <div id="onglets" class="onglets" role="tablist" aria-label="Que faut-il encaisser ?"></div>
+        <div id="contenuOnglet" class="contenu-onglet" role="tabpanel"></div>
+      </div>
+      <aside id="panier" class="panier" aria-label="À encaisser"></aside>
+    </section>
 
-    // ─── L'encaissement est piloté par le serveur ────────────────────────────
-    //
-    // Cette page ne parle jamais au lecteur. Elle demande à notre serveur, qui
-    // demande à Stripe, qui pousse l'ordre au lecteur. Aucune connexion locale
-    // n'est nécessaire : la caisse fonctionne donc depuis n'importe quel réseau,
-    // pourvu que le lecteur, lui, ait Internet.
-    //
-    // En contrepartie, la page ne sait pas ce qui se passe sur le lecteur : elle
-    // demande où en est le paiement, régulièrement, jusqu'à une issue.
+    <!-- 7 · Paiement accepté -->
+    <section data-ecran="accepte" class="ecran-issue" hidden>
+      <div id="ecranAccepte" class="colonne-issue"></div>
+    </section>
 
-    const DELAI_SONDAGE_MS = 1500;
-    // Deux minutes : au-delà, la carte ne viendra plus et laisser l'écran du
-    // lecteur bloqué empêcherait l'encaissement suivant.
-    const DELAI_ABANDON_MS = 120000;
+    <!-- 9 · Paiement refusé -->
+    <section data-ecran="refuse" class="ecran-issue" hidden>
+      <div id="ecranRefuse" class="colonne-issue"></div>
+    </section>
 
-    let lecteurChoisi = null;
-    let paiementEnCours = null;
+    <!-- Identification requise -->
+    <section data-ecran="identification" class="ecran-issue" hidden>
+      <div id="ecranIdentification" class="colonne-issue"></div>
+    </section>
 
-    // ─── L'élève choisi dans les suggestions ─────────────────────────────────
-    //
-    // Renseigné UNIQUEMENT quand une suggestion a été cliquée, et remis à zéro
-    // dès que le nom est retouché à la main. C'est le seul vrai danger de ce
-    // rattachement : un identifiant qui survivrait à la correction du nom
-    // inscrirait le paiement sur la fiche de quelqu'un d'autre. Mieux vaut cent
-    // paiements sans élève qu'un seul sur le mauvais.
-    //
-    // Déclaré ici et non dans le bloc d'autocomplétion : l'envoi du paiement,
-    // plus haut, doit pouvoir le lire. Il reste à `null` si ce bloc n'a jamais
-    // fonctionné — la caisse encaisse alors exactement comme avant.
-    let eleveChoisi = null;
-
-    const attendre = (ms) => new Promise((r) => setTimeout(r, ms));
-
-    /** Charge les lecteurs de l'agence. Sans lecteur, pas d'encaissement possible. */
-    async function chargerLecteurs() {
-      write('🔎 Recherche des lecteurs…');
-      try {
-        const r = await fetch('/api/lecteurs?slug=' + encodeURIComponent(AGENCE));
-        const data = await r.json();
-        if (!r.ok) return write('❌ ' + (data.error || 'Lecteurs indisponibles.'));
-
-        const lecteurs = data.lecteurs || [];
-        if (!lecteurs.length) {
-          return write('❌ Aucun lecteur enregistré pour cette agence. Vérifiez son emplacement Terminal dans sa fiche.');
-        }
-
-        readerSelect.innerHTML = lecteurs
-          .map((l) => `<option value="${l.id}">${l.label}${l.enLigne ? '' : ' — hors ligne'}</option>`)
-          .join('');
-
-        // On préselectionne un lecteur en ligne : proposer d'emblée un lecteur
-        // éteint ferait échouer l'encaissement sans raison apparente.
-        const enLigne = lecteurs.find((l) => l.enLigne);
-        lecteurChoisi = (enLigne || lecteurs[0]).id;
-        readerSelect.value = lecteurChoisi;
-
-        payBtn.disabled = false;
-        write(enLigne
-          ? '✅ Lecteur prêt : <b>' + enLigne.label + '</b>'
-          : '⚠️ Le lecteur est hors ligne. Vérifiez qu\'il est allumé et connecté.');
-      } catch (e) {
-        write('❌ Lecteurs indisponibles : ' + e.message);
-      }
-    }
-
-    readerSelect.addEventListener('change', () => { lecteurChoisi = readerSelect.value; });
-
-    /** Interroge le serveur jusqu'à une issue : autorisé, échec, ou abandon. */
-    async function suivrePaiement(paymentIntentId) {
-      const limite = Date.now() + DELAI_ABANDON_MS;
-
-      while (Date.now() < limite) {
-        await attendre(DELAI_SONDAGE_MS);
-
-        const r = await fetch(
-          '/api/paiement/etat?slug=' + encodeURIComponent(AGENCE) +
-          '&pi=' + encodeURIComponent(paymentIntentId) +
-          '&lecteur=' + encodeURIComponent(lecteurChoisi)
-        );
-        const data = await r.json().catch(() => ({}));
-
-        // Un incident réseau passager ne doit pas interrompre le suivi : la
-        // carte est peut-être déjà sur le lecteur. On retentera au tour suivant.
-        if (!r.ok) continue;
-
-        if (data.etat === 'autorise') return { ok: true };
-        if (data.etat === 'capture') return { ok: true, dejaCapture: true };
-        if (data.etat === 'echec') return { ok: false, message: data.message };
-      }
-
-      return { ok: false, message: 'Délai dépassé — aucune carte présentée.' };
-    }
-
-    async function annulerPaiement(silencieux) {
-      if (!paiementEnCours) return;
-      const pi = paiementEnCours;
-      paiementEnCours = null;
-      cancelBtn.classList.add('hidden');
-      try {
-        await fetch('/api/paiement/annuler', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ slug: AGENCE, paymentIntentId: pi, lecteur: lecteurChoisi }),
-        });
-      } catch (_) { /* l'affichage du lecteur retombera seul */ }
-      if (!silencieux) write('⛔️ Encaissement annulé.');
-      payBtn.disabled = false;
-    }
-
-    cancelBtn.addEventListener('click', () => annulerPaiement(false));
-    resetBtn.addEventListener('click', () => location.reload());
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!lecteurChoisi) return write('❌ Aucun lecteur sélectionné.');
-      if (paiementEnCours) return write('⏳ Un encaissement est déjà en cours.');
-
-      // Lecture par référence, et non par nom de champ : les champs élève
-      // portent des noms neutres pour tenir le remplissage automatique de
-      // Chrome à l'écart de nos suggestions.
-      const fd = {
-        firstName: form.querySelector('input[name="champA"]').value,
-        lastName:  form.querySelector('input[name="champB"]').value,
-        email:     form.querySelector('input[name="champC"]').value,
-        montant:   form.querySelector('input[name="montant"]').value,
-      };
-
-      // Accepter virgule ou point
-      const montantFloat = parseFloat(String(fd.montant).replace(',', '.'));
-      if (isNaN(montantFloat) || montantFloat <= 0) return write('❌ Montant invalide.');
-      const amountInCents = Math.round(montantFloat * 100);
-
-      payBtn.disabled = true;
-      write('⏳ Envoi au lecteur…');
-
-      try {
-        const r = await fetch('/api/paiement', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            slug: AGENCE,
-            lecteur: lecteurChoisi,
-            montant: amountInCents,
-            email: fd.email,
-            firstName: fd.firstName,
-            lastName: fd.lastName,
-            studentId: eleveChoisi,
-          }),
-        });
-        const data = await r.json();
-        if (!r.ok) {
-          payBtn.disabled = false;
-          return write('❌ ' + (data.error || 'Envoi impossible.'));
-        }
-
-        paiementEnCours = data.paymentIntentId;
-        cancelBtn.classList.remove('hidden');
-        write('💳 Présentez la carte sur le lecteur…');
-
-        const issue = await suivrePaiement(paiementEnCours);
-
-        if (!issue.ok) {
-          await annulerPaiement(true);
-          return write('❌ ' + (issue.message || 'Paiement non abouti.'));
-        }
-
-        if (!issue.dejaCapture) {
-          write('🔒 Carte acceptée. Encaissement…');
-          const c = await fetch('/api/paiement/capture', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ slug: AGENCE, paymentIntentId: paiementEnCours }),
-          });
-          const cd = await c.json();
-          if (!c.ok) {
-            // L'autorisation tient encore : on ne l'annule surtout pas, elle
-            // peut être capturée depuis Stripe. Mieux vaut un encaissement à
-            // terminer à la main qu'un client débité deux fois.
-            return write('⚠️ Carte acceptée mais encaissement incomplet : ' + (cd.error || '') +
-                         '<br>Terminez-le depuis Stripe, ne recommencez pas le paiement.');
-          }
-        }
-
-        paiementEnCours = null;
-        cancelBtn.classList.add('hidden');
-        payBtn.disabled = false;
-        write('🎉 Paiement réussi !');
-        if (window.confetti) confetti();
-      } catch (err) {
-        payBtn.disabled = false;
-        write('❌ ' + err.message);
-      }
-    });
-
-    // ─── Autocomplétion élève (CRM) ──────────────────────────────────────────
-    //
-    // Confort de saisie, rien de plus. Trois règles tenues par ce bloc :
-    //   1. aucune erreur n'est affichée si le CRM ne répond pas — la liste ne
-    //      s'ouvre simplement pas ;
-    //   2. rien n'oblige à choisir une suggestion : un élève inconnu du CRM, mal
-    //      orthographié ou rattaché ailleurs se saisit à la main comme avant ;
-    //   3. `payBtn` n'est jamais touché ici. Il ne dépend que du lecteur
-    //      connecté, exactement comme avant cet ajout.
-    //
-    // Tout est enveloppé dans un try/catch : même une erreur de programmation
-    // dans cette partie ne doit pas empêcher d'encaisser.
-    try {
-      const champPrenom = form.querySelector('input[name="champA"]');
-      const champNom    = form.querySelector('input[name="champB"]');
-      const champEmail  = form.querySelector('input[name="champC"]');
-
-      // Assez court pour suivre la frappe, assez long pour ne pas lancer une
-      // requête par lettre.
-      const DELAI_FRAPPE_MS = 250;
-
-      const liste = document.createElement('ul');
-      liste.className = 'suggest hidden';
-      liste.setAttribute('role', 'listbox');
-
-      let resultats = [];
-      let surligne = -1;
-      let minuteur = null;
-      let requeteEnCours = null;
-
-      const fermer = () => {
-        liste.classList.add('hidden');
-        resultats = [];
-        surligne = -1;
-      };
-
-      const dessiner = () => {
-        liste.innerHTML = resultats.map((e, i) => {
-          const sousTitre = [e.email, e.phone].filter(Boolean).join(' · ');
-          return '<li role="option" data-i="' + i + '" aria-selected="' + (i === surligne) + '">' +
-                 '<span class="nom"></span>' +
-                 (sousTitre ? '<span class="sub"></span>' : '') +
-                 '</li>';
-        }).join('');
-        // Le texte est posé après coup plutôt qu'interpolé : un nom d'élève
-        // contenant des chevrons ne doit pas pouvoir devenir du HTML.
-        liste.querySelectorAll('li').forEach((li, i) => {
-          const e = resultats[i];
-          li.querySelector('.nom').textContent = (e.firstName + ' ' + e.lastName).trim();
-          const sub = li.querySelector('.sub');
-          if (sub) sub.textContent = [e.email, e.phone].filter(Boolean).join(' · ');
-        });
-      };
-
-      const choisir = (i) => {
-        const e = resultats[i];
-        if (!e) return;
-        champPrenom.value = e.firstName || '';
-        champNom.value    = e.lastName || '';
-        // Poser les valeurs par programme ne déclenche aucun `input` : la
-        // remise à zéro ci-dessous ne s'annulera donc pas toute seule.
-        eleveChoisi = e.id || null;
-        // On n'écrase pas un email déjà saisi à la main par un email vide en
-        // base : la caisse a pu le demander à l'élève, il est plus à jour.
-        if (e.email) champEmail.value = e.email;
-        fermer();
-        form.querySelector('input[name="montant"]').focus();
-      };
-
-      const chercher = async (terme, champ) => {
-        if (terme.trim().length < 2) return fermer();
-        // Une frappe rapide lance plusieurs requêtes ; sans cela, une réponse
-        // lente arrivée en retard réafficherait d'anciens résultats.
-        if (requeteEnCours) requeteEnCours.abort();
-        requeteEnCours = new AbortController();
-        try {
-          const r = await fetch(
-            '/api/students?q=' + encodeURIComponent(terme) + '&slug=' + encodeURIComponent(AGENCE),
-            { signal: requeteEnCours.signal }
-          );
-          if (!r.ok) return fermer();
-          const { students } = await r.json();
-          resultats = students || [];
-          surligne = -1;
-          if (!resultats.length) return fermer();
-          champ.parentNode.appendChild(liste);
-          dessiner();
-          liste.classList.remove('hidden');
-        } catch (_) {
-          // Requête annulée, CRM injoignable, réponse illisible : dans tous les
-          // cas on se tait et la saisie manuelle continue.
-          fermer();
-        }
-      };
-
-      [champPrenom, champNom].forEach((champ) => {
-        champ.addEventListener('input', () => {
-          // Le nom change à la main : ce n'est plus l'élève choisi. On n'attend
-          // pas de savoir si la nouvelle frappe donnera une suggestion — entre
-          // les deux, un envoi au lecteur partirait avec l'ancien identifiant.
-          //
-          // L'email, lui, ne délie pas : la caisse le corrige couramment parce
-          // que l'élève en donne un plus à jour que celui de sa fiche.
-          eleveChoisi = null;
-          clearTimeout(minuteur);
-          const terme = champ.value;
-          minuteur = setTimeout(() => chercher(terme, champ), DELAI_FRAPPE_MS);
-        });
-
-        champ.addEventListener('keydown', (ev) => {
-          if (liste.classList.contains('hidden')) return;
-          if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
-            ev.preventDefault();
-            const pas = ev.key === 'ArrowDown' ? 1 : -1;
-            surligne = (surligne + pas + resultats.length) % resultats.length;
-            dessiner();
-          } else if (ev.key === 'Enter') {
-            // Entrée ne vaut choix que si une suggestion est surlignée. Sinon on
-            // laisse l'événement suivre son cours : sur un formulaire, Entrée
-            // valide, et intercepter cela reviendrait à gêner l'encaissement.
-            if (surligne >= 0) {
-              ev.preventDefault();
-              choisir(surligne);
-            }
-          } else if (ev.key === 'Escape') {
-            fermer();
-          }
-        });
-
-        champ.addEventListener('blur', () => {
-          // Laisser le clic sur une suggestion se produire avant de fermer.
-          setTimeout(fermer, 150);
-        });
-      });
-
-      liste.addEventListener('mousedown', (ev) => {
-        const li = ev.target.closest('li[data-i]');
-        if (!li) return;
-        ev.preventDefault(); // garde le focus, évite un `blur` qui fermerait
-        choisir(Number(li.dataset.i));
-      });
-    } catch (e) {
-      console.warn('[TPE] autocomplétion indisponible :', e.message);
-    }
-
-    // Nom de l'agence dans le titre. Purement cosmétique : en cas d'échec, le
-    // titre reste « Paiement TPE » et la caisse fonctionne normalement.
-    fetch('/api/agence?slug=' + encodeURIComponent(AGENCE))
-      .then(r => r.ok ? r.json() : null)
-      .then(a => {
-        if (!a?.name) return;
-        document.getElementById('nomAgence').textContent = a.name;
-        document.title = 'Paiement TPE ' + a.name;
-      })
-      .catch(() => {});
-
-    // Lancer au chargement
-    chargerLecteurs();
-  </script>
+    <!-- 8 · CRM indisponible : encaissement de secours -->
+    <section data-ecran="secours" class="ecran-centre" hidden>
+      <!--
+        Les champs portent des noms neutres (`champA/B/C`) et un `autocomplete`
+        que le navigateur ne reconnaît pas. C'est délibéré : avec
+        `name="firstName"` et le libellé « Prénom », Chrome identifie un
+        formulaire d'adresse et affiche SA liste d'adresses enregistrées par-dessus
+        la page. `autocomplete="off"` seul ne suffit pas : Chrome l'ignore sur
+        les formulaires d'adresse. Les valeurs sont relues par référence.
+      -->
+      <form id="formSecours" class="carte carte-secours" autocomplete="off" novalidate>
+        <div class="titre-carte">Encaissement de secours</div>
+        <p id="noteSecours" class="muted petit" hidden>Adresse sans agence : le catalogue n'est pas disponible ici, seul l'encaissement de secours l'est.</p>
+        <div class="grille-2">
+          <label class="champ">Prénom<input class="in" type="text" name="champA" autocomplete="pas-de-remplissage-auto" required /></label>
+          <label class="champ">Nom<input class="in" type="text" name="champB" autocomplete="pas-de-remplissage-auto" required /></label>
+        </div>
+        <label class="champ">E-mail<input class="in" type="email" name="champC" autocomplete="pas-de-remplissage-auto" required /></label>
+        <label class="champ">Montant
+          <span class="ligne-montant"><input class="in in-montant" type="text" name="champD" inputmode="decimal"
+                 autocomplete="pas-de-remplissage-auto" placeholder="ex. 45,00" required /><span aria-hidden="true">€</span></span>
+        </label>
+        <label class="champ">Motif<input class="in" type="text" name="champE" maxlength="120"
+               autocomplete="pas-de-remplissage-auto" placeholder="Ex. : forfait Permis B 20 heures" /></label>
+        <button type="submit" class="btn btnp" id="envoyerSecours">Envoyer au lecteur</button>
+        <button type="button" class="btn" id="annulerSecours" hidden>Annuler l'encaissement</button>
+        <div id="statutSecours" class="statut" role="status"></div>
+        <button type="button" class="btn" id="nouveauSecours" hidden>Nouvel encaissement</button>
+        <button type="button" class="lien-btn" id="retenterCatalogue" hidden>Le CRM est revenu ? Reprendre le catalogue</button>
+      </form>
+    </section>
+  </main>
 </body>
 </html>
