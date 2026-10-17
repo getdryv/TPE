@@ -40,13 +40,16 @@ export function texteRepartition(d) {
  * PURE. Ce que la bande dit de l'e-mail à l'élève, d'après le CODE de l'effet
  * renvoyé par le CRM (jamais d'après son texte) : `ticket_envoye` → « E-mail
  * envoyé », `ticket_echec` ou `ticket_sans_adresse` → « E-mail non envoyé »
- * (bande orange). Tout autre code (envoi désactivé, CRM plus ancien) : rien.
+ * (bande orange), `ticket_en_cours` → « E-mail en cours d'envoi » : le CRM
+ * n'attend l'e-mail que 400 ms, la caisse ne reste jamais bloquée dessus.
+ * Tout autre code (envoi désactivé, CRM plus ancien) : rien.
  */
 export function etatEmail(declaration) {
   const effets = declaration && Array.isArray(declaration.effets) ? declaration.effets : [];
   const codes = effets.map((e) => e && e.code);
   if (codes.includes('ticket_echec') || codes.includes('ticket_sans_adresse')) return { texte: 'E-mail non envoyé', alerte: true };
   if (codes.includes('ticket_envoye')) return { texte: 'E-mail envoyé', alerte: false };
+  if (codes.includes('ticket_en_cours')) return { texte: 'E-mail en cours d\'envoi', alerte: false };
   return null;
 }
 

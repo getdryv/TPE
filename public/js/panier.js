@@ -25,7 +25,7 @@ import { envoyerCarte, annulerPaiement, lecteurPret, raisonLecteurActuel } from 
 import { encaisserSansCarte, initSansCarte, MOYENS_SANS_CARTE } from './sans-carte.js';
 import { initCheques, rendreCheques } from './cheques.js';
 import {
-  CHAMPS_DU_PANIER, retenirDevis, devisAffiche, resteAffiche, prixCatalogue, texteReste,
+  CHAMPS_DU_PANIER, retenirDevis, devisAffiche, resteAffiche, prixCatalogue, texteReste, libelleCorrection,
 } from './panier-affiche.js';
 
 // Assez pour laisser finir la frappe des espèces, assez court pour que le prix
@@ -251,8 +251,7 @@ function rendreBoutons(etat, aJour) {
   }
   if (!aJour) {
     n.principal.disabled = true;
-    const corriger = avecCheques(etat.moyen) ? 'Corrigez l\'échéancier' : 'Prix indisponible';
-    n.principal.textContent = etat.devisErreur ? corriger : 'Calcul du prix…';
+    n.principal.textContent = etat.devisErreur ? libelleCorrection(etat.moyen, etat.devisChamp) : 'Calcul du prix…';
     return;
   }
   n.principal.textContent = libelleAction(etat);

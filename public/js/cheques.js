@@ -17,7 +17,7 @@ import {
   choisirNombreCheques, choisirPremierCheque, avancerCheque, saisirMontantCheque,
 } from './etat.js';
 import { avecCheques } from './etat-cheques.js';
-import { prixPourNombre } from './panier-affiche.js';
+import { prixPourNombre, chequeFautif } from './panier-affiche.js';
 
 const JOURS_MAX = 62; // garde-fou de la rangée de pastilles (le réglage d'agence va jusqu'à 30 jours ouvrés)
 
@@ -28,7 +28,9 @@ let memo = { contexte: null, echeancier: null };
 let structure = null;
 let champs = [];   // [{ index, input, cellule }] des chèques 1 à n−1
 let restes = [];   // [{ rang, noeud }] montants affichés en texte
-let alerte = null; // erreur du CRM sur un montant ou une date, sous l'échéancier
+let alerte = null; // erreur du CRM sur un montant ou une date
+let ligneAlerte = null; // rangée pleine largeur qui la porte sous le chèque fautif (A2)
+let alerteVue = '';  // dernier message amené à l'écran
 
 /** 58600 → « 586 », 58650 → « 586,50 » : la valeur d'un champ de montant. */
 function enSaisie(cents) {
@@ -142,7 +144,7 @@ function celluleMontant(v, nombre, verrou) {
     });
     input.addEventListener('input', () => agir(saisirMontantCheque, index, input.value));
     input.addEventListener('focus', () => input.select());
-    champs.push({ index, input });
+    champs.push({ index, input, rangee: null });
     return el('td', {}, el('span', { class: 'mt-ch' }, input, el('span', { 'aria-hidden': 'true' }, '€')));
   }
   const noeud = el('span', { class: 'num' }, eurosCourts(v.amountCents));
@@ -159,12 +161,16 @@ function libelleVersement(v, esp) {
 
 function tableau(ech, nombre, verrou) {
   const esp = ech.moyen === 'especes_cheques';
-  const lignes = ech.versements.map((v) => el('tr', {},
-    el('td', {}, libelleVersement(v, esp)), celluleDate(v, verrou), celluleMontant(v, nombre, verrou)));
+  const lignes = ech.versements.map((v) => {
+    const avant = champs.length;
+    const tr = el('tr', {}, el('td', {}, libelleVersement(v, esp)), celluleDate(v, verrou), celluleMontant(v, nombre, verrou));
+    if (champs.length > avant) champs[champs.length - 1].rangee = tr;
+    return tr;
+  });
   const reglable = ech.versements.some((v) => v.montantModifiable || v.avancable);
   return [
     el('table', { class: 'ech', 'aria-label': 'Échéancier' }, el('tbody', {}, lignes)),
-    alerte,
+    el('div', { class: 'place-alerte' }),
     reglable ? el('p', { class: 'sousligne' },
       'Modifiez un montant (un gros 1er chèque, par exemple) : les autres se recalculent seuls. Une date peut être avancée à la demande de l\'élève, jamais reculée.') : null,
   ];
@@ -194,10 +200,33 @@ function majMontants(etat, ech) {
   }
 }
 
-/** L'erreur du CRM sur l'échéancier, juste sous lui ; les montants saisis sont entourés. */
+/**
+ * L'erreur du CRM : sous le chèque fautif quand elle vise un montant (A2,
+ * lisible sans défiler, à côté du champ entouré), sinon sous l'échéancier.
+ * Déplacer le message ne touche pas au champ : la frappe garde son focus.
+ */
+function placerAlerte(etat, erreur) {
+  const i = erreur ? chequeFautif(etat.devisChamp, etat.cheques.montants) : null;
+  const cible = i === null ? null : champs.find((c) => c.index === i);
+  const place = zone.querySelector('.place-alerte');
+  if (cible && cible.rangee) {
+    ligneAlerte.firstChild.appendChild(alerte);
+    if (cible.rangee.nextSibling !== ligneAlerte) cible.rangee.after(ligneAlerte);
+  } else {
+    ligneAlerte.remove();
+    if (place && alerte.parentNode !== place) place.appendChild(alerte);
+    else if (!place && alerte.parentNode !== zone) zone.appendChild(alerte);
+  }
+  // Un nouveau message est amené à l'écran (le corps du panier défile) ; pas à chaque frappe.
+  if (erreur && erreur !== alerteVue && typeof alerte.scrollIntoView === 'function') alerte.scrollIntoView({ block: 'nearest' });
+  alerteVue = erreur || '';
+}
+
+/** L'erreur du CRM, placée près du champ fautif ; les montants saisis sont entourés. */
 function majAlerte(etat, erreur) {
   alerte.hidden = !erreur;
   alerte.textContent = erreur || '';
+  placerAlerte(etat, erreur);
   const montants = Boolean(erreur) && etat.devisChamp === 'montants';
   for (const { index, input } of champs) {
     const saisi = String(etat.cheques.montants[index] || '').trim();
@@ -234,7 +263,7 @@ export function rendreCheques(etat, erreur = null) {
       rangeeNombre(etat, proposes, nombre, verrou),
       nombre && !ech && requeteDevis(etat).corps ? el('p', { class: 'sousligne' }, 'Calcul de l\'échéancier…') : null,
       ech && ech.premier ? blocPremier(etat, ech, nombre, verrou) : null,
-      ech ? tableau(ech, nombre, verrou) : alerte);
+      ech ? tableau(ech, nombre, verrou) : null);
   }
   majMontants(etat, ech);
   majAlerte(etat, erreur);
@@ -244,4 +273,5 @@ export function initCheques(m, conteneur) {
   magasin = m;
   zone = conteneur;
   alerte = el('p', { class: 'reste trop', role: 'alert', hidden: true });
+  ligneAlerte = el('tr', { class: 'ligne-alerte' }, el('td', { colspan: '3' }));
 }

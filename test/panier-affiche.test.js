@@ -95,5 +95,23 @@ test('bande : « E-mail envoyé » ou « non envoyé » selon le CODE de l\'effe
   assert.deepEqual(B.etatEmail(decl('ticket_echec')), { texte: 'E-mail non envoyé', alerte: true });
   assert.deepEqual(B.etatEmail(decl('ticket_sans_adresse')), { texte: 'E-mail non envoyé', alerte: true });
   assert.equal(B.etatEmail(decl('ticket')), null);
+  // N2 : le CRM n'attend l'e-mail que 400 ms ; au-delà, il est annoncé en cours, sans alerte.
+  assert.deepEqual(B.etatEmail(decl('ticket_en_cours')), { texte: 'E-mail en cours d\'envoi', alerte: false });
   assert.equal(B.etatEmail(null), null);
+});
+
+test('N1 : le bouton bloqué désigne le vrai champ fautif', () => {
+  assert.equal(A.libelleCorrection('especes_cheques', 'especes'), 'Corrigez le montant en espèces');
+  assert.equal(A.libelleCorrection('mixte', 'especes'), 'Corrigez le montant en espèces');
+  assert.equal(A.libelleCorrection('especes_cheques', 'montants'), 'Corrigez l\'échéancier');
+  assert.equal(A.libelleCorrection('cheques', null), 'Corrigez l\'échéancier');
+  assert.equal(A.libelleCorrection('carte', null), 'Prix indisponible');
+});
+
+test('A2 : l’erreur de montant va sous le premier chèque saisi ; les autres restent sous l’échéancier', () => {
+  assert.equal(A.chequeFautif('montants', ['2000', null, '']), 0);
+  assert.equal(A.chequeFautif('montants', ['', ' 900 ']), 1);
+  assert.equal(A.chequeFautif('montants', ['', null]), null);
+  assert.equal(A.chequeFautif('avances', ['2000']), null);
+  assert.equal(A.chequeFautif(null, undefined), null);
 });

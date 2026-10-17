@@ -106,3 +106,26 @@ export function prixCatalogue(etat) {
 export function texteReste(moyen, montant) {
   return moyen === 'especes_cheques' ? `Reste ${montant} en chèques` : `Reste ${montant} par carte`;
 }
+
+/**
+ * Le bouton bloqué dit OÙ est la faute (contre-recette N1) : les espèces, si le
+ * CRM désigne ce champ ; l'échéancier pour les autres refus d'un paiement par
+ * chèques ; sinon le prix.
+ */
+export function libelleCorrection(moyen, champ) {
+  if (champ === 'especes') return 'Corrigez le montant en espèces';
+  if (avecCheques(moyen)) return 'Corrigez l\'échéancier';
+  return 'Prix indisponible';
+}
+
+/**
+ * Le chèque sous lequel écrire une erreur de montant (contre-recette A2) : le
+ * premier montant saisi à la main, celui que la secrétaire vient de taper.
+ * null : l'erreur ne vise pas un montant, ou aucun n'est saisi (elle reste
+ * alors sous l'échéancier).
+ */
+export function chequeFautif(champ, montants) {
+  if (champ !== 'montants' || !Array.isArray(montants)) return null;
+  const i = montants.findIndex((m) => String(m || '').trim() !== '');
+  return i >= 0 ? i : null;
+}
