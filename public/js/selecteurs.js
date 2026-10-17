@@ -113,7 +113,7 @@ export function rendreForfait(zone, etat) {
       mention: mentionDe(l), verrou, surChoix: surChoix(l.cle),
     }))),
     choisi
-      ? retenu(choisi, 'Prix comptant, payé en une fois au comptoir. Le panier fait foi.')
+      ? retenu(choisi, 'Prix comptant. En 2 ou 3 versements, le panier affiche le prix en plusieurs fois.')
       : el('p', { class: 'muted petit' }, 'Choisissez les heures : le forfait et son prix s\'affichent ici.'),
   ]);
 }
@@ -177,7 +177,7 @@ export function rendreHeuresSupp(zone, etat) {
     !packs.length
       ? el('p', { class: 'muted petit' }, `Aucun pack d'heures ${texteVehicule(etat).toLowerCase()} au catalogue de l'agence.`)
       : choisi
-        ? retenu(choisi, 'Prix comptant, payé en une fois. Seuls les packs du véhicule de l\'élève sont proposés.')
+        ? retenu(choisi, 'Prix comptant. Seuls les packs du véhicule de l\'élève sont proposés.')
         : el('p', { class: 'muted petit' }, 'Choisissez un pack : son prix s\'affiche ici.'),
     packs.length ? caseAccompagnement(offre, coche, verrou) : null,
   ]);
