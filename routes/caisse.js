@@ -101,7 +101,7 @@ router.post('/api/caisse/devis', async (req, res) => {
     delaiMs: DELAIS_MS.devis,
   });
   if (r.indisponible) return res.status(503).json({ crm: 'indisponible' });
-  if (!r.ok) return res.status(r.status).json({ error: r.error, ...(r.code ? { code: r.code } : {}) });
+  if (!r.ok) return res.status(r.status).json({ error: r.error, ...(r.code ? { code: r.code } : {}), ...(r.champ ? { champ: r.champ } : {}) });
   return res.json({ devis: r.data?.devis ?? null, jeton: r.data?.jeton ?? null });
 });
 
