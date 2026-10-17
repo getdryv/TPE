@@ -15,7 +15,7 @@ const express = require('express');
 const { exigerAgence, slugEffectif } = require('../lib/agences');
 const { appelerCrm, configurationCrm, DELAIS_MS } = require('../lib/crm');
 const { exigerJeton } = require('../lib/jeton');
-const { lireDevis, decouperPourMetadonnees, recomposerDepuisMetadonnees } = require('../lib/devis');
+const { lireDevis, decouperPourMetadonnees, recomposerDepuisMetadonnees, sansCarte } = require('../lib/devis');
 const { sessionCaisse } = require('../lib/session');
 const { lancerEncaissement, capturerSiBesoin } = require('../lib/terminal');
 const { declarerEncaissementCaisse } = require('../lib/declaration');
@@ -57,11 +57,28 @@ router.get('/api/caisse/session', async (req, res) => {
 });
 
 /**
- * POST /api/caisse/devis { slug, studentId, produit, moyen, especesCents? }
+ * Les CHOIX de l'élève pour un paiement en chèques (contrat Encaisser § 2.2,
+ * `DemandeCheques`) : nombre, date du 1er chèque, avances, montants des
+ * chèques 1 à n−1. Seules ces clés passent ; le CRM les valide et recalcule
+ * tout le reste (prix, bornes, dates prévues, dernier montant).
+ */
+function demandeCheques(brut) {
+  if (!brut || typeof brut !== 'object') return undefined;
+  const liste = (v) => (Array.isArray(v) ? v.slice(0, 3) : undefined);
+  const demande = { nombre: brut.nombre };
+  if (brut.premierLe !== undefined) demande.premierLe = brut.premierLe;
+  if (liste(brut.avances)) demande.avances = liste(brut.avances);
+  if (liste(brut.montantsCents)) demande.montantsCents = liste(brut.montantsCents);
+  return demande;
+}
+
+/**
+ * POST /api/caisse/devis { slug, studentId, produit, moyen, especesCents?, cheques? }
  *
- * Relaie la demande au CRM, qui DÉCIDE du prix. Seuls les champs du contrat
- * passent ; l'agence et le jeton sont ajoutés ici. Refus du CRM relayés avec
- * leur code HTTP et leur message ; CRM muet : 503 `{ crm: 'indisponible' }`.
+ * Relaie la demande au CRM, qui DÉCIDE du prix et, pour les chèques, de
+ * l'échéancier. Seuls les champs du contrat passent ; l'agence et le jeton
+ * sont ajoutés ici. Refus du CRM relayés avec leur code HTTP et leur message ;
+ * CRM muet : 503 `{ crm: 'indisponible' }`.
  */
 router.post('/api/caisse/devis', async (req, res) => {
   const slug = slugEffectif(req);
@@ -70,6 +87,7 @@ router.post('/api/caisse/devis', async (req, res) => {
   if (!auth) return;
 
   const { studentId, produit, moyen, especesCents } = req.body || {};
+  const cheques = demandeCheques(req.body && req.body.cheques);
   const r = await appelerCrm('/api/internal/caisse/devis', {
     corps: {
       agencySlug: slug,
@@ -78,6 +96,7 @@ router.post('/api/caisse/devis', async (req, res) => {
       produit,
       moyen,
       ...(especesCents !== undefined ? { especesCents } : {}),
+      ...(cheques ? { cheques } : {}),
     },
     delaiMs: DELAIS_MS.devis,
   });
@@ -102,7 +121,7 @@ router.post('/api/caisse/paiement', async (req, res) => {
     const devis = exigerDevis(res, req.body?.devis, slug);
     if (!devis) return;
 
-    if (devis.mo === 'especes' || devis.cb < 50) {
+    if (sansCarte(devis) || devis.cb < 50) {
       return res.status(400).json({ error: "Ce devis ne comporte pas de part carte.", code: 'devis_sans_carte' });
     }
     const lecteur = court(req.body?.lecteur);
@@ -212,10 +231,15 @@ router.post('/api/caisse/capture', async (req, res) => {
 /**
  * POST /api/caisse/especes { slug, devis }
  *
- * Espèces seules : aucun terminal, déclaration attendue. Ici un CRM muet est
- * une ERREUR (503) : rien n'est enregistré, la secrétaire a les billets en
- * main et doit le savoir — jamais un « en attente » silencieux. Un nouvel
- * essai avec le même devis est sans risque (le CRM répond « déjà »).
+ * Tout ce qui se règle SANS le lecteur : espèces seules, chèques, espèces +
+ * chèques (contrat Encaisser § 3.4 : la route garde son nom). Aucun terminal,
+ * déclaration attendue. Ici un CRM muet est une ERREUR (503) : rien n'est
+ * enregistré, la secrétaire a les billets ou les chèques en main et doit le
+ * savoir — jamais un « en attente » silencieux. Un nouvel essai avec le même
+ * devis est sans risque (le CRM répond « déjà »).
+ *
+ * Un devis émis la veille (`devis_autre_jour`, 409) est relayé tel quel : les
+ * dates de remise valaient pour le jour du devis, la page en redemande un.
  */
 router.post('/api/caisse/especes', async (req, res) => {
   const slug = slugEffectif(req);
@@ -223,7 +247,7 @@ router.post('/api/caisse/especes', async (req, res) => {
   if (!exigerJeton(req, res, slug)) return;
   const devis = exigerDevis(res, req.body?.devis, slug);
   if (!devis) return;
-  if (devis.mo !== 'especes') {
+  if (!sansCarte(devis)) {
     return res.status(400).json({ error: "Ce devis comporte une part carte : passez par le lecteur.", code: 'devis_avec_carte' });
   }
 
@@ -233,9 +257,10 @@ router.post('/api/caisse/especes', async (req, res) => {
     { relancer: false, devisId: devis.id }
   );
   if (declaration.statut === 'en_attente') {
+    const aRendre = { especes: 'les espèces', cheques: 'les chèques', especes_cheques: 'les espèces et les chèques' }[devis.mo];
     return res.status(503).json({
       crm: 'indisponible',
-      error: "Le CRM ne répond pas : rien n'est enregistré. Réessayez, ou rendez les espèces.",
+      error: `Le CRM ne répond pas : rien n'est enregistré. Réessayez, ou rendez ${aRendre}.`,
       declaration,
     });
   }
