@@ -37,6 +37,7 @@ function panierVide() {
     jetonDevis: null,     // seul le jeton fait foi côté serveur
     devisVersion: -1,     // version du panier pour laquelle `devis` a été émis
     devisErreur: null,    // message du CRM, affiché tel quel
+    devisChamp: null,     // champ fautif désigné par le CRM (montants, especes…), ou null
     paiement: null,       // { etape: 'envoi' | 'carte' | 'capture' | 'especes' }
     erreur: null,         // message affiché dans le panier (envoi impossible…)
     refus: null,          // motif du lecteur (écran 9)
@@ -140,6 +141,7 @@ function panierModifie(etat, changements) {
     jetonDevis: null,
     devisVersion: -1,
     devisErreur: null,
+    devisChamp: null,
     erreur: null,
   };
 }
@@ -250,12 +252,12 @@ export const saisirMontantCheque = (etat, index, texte) => modifierCheques(etat,
 /** Réponse du devis : retenue seulement si le panier n'a pas bougé entre-temps. */
 export function devisRecu(etat, version, reponse) {
   if (version !== etat.version || !reponse || !reponse.devis || !reponse.jeton) return etat;
-  return { ...etat, devis: reponse.devis, jetonDevis: reponse.jeton, devisVersion: version, devisErreur: null };
+  return { ...etat, devis: reponse.devis, jetonDevis: reponse.jeton, devisVersion: version, devisErreur: null, devisChamp: null };
 }
 
-export function devisRefuse(etat, version, message) {
+export function devisRefuse(etat, version, message, champ = null) {
   if (version !== etat.version) return etat;
-  return { ...etat, devis: null, jetonDevis: null, devisVersion: -1, devisErreur: message || 'Prix indisponible.' };
+  return { ...etat, devis: null, jetonDevis: null, devisVersion: -1, devisErreur: message || 'Prix indisponible.', devisChamp: champ || null };
 }
 
 // ─── Paiement ────────────────────────────────────────────────────────────────

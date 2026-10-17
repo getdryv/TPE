@@ -41,12 +41,12 @@
       <div class="colonne-eleve">
         <h1>Pour quel élève ?</h1>
         <div id="rappelEspeces" class="encart encart-warn" role="status" hidden></div>
-        <label for="recherche" class="muted etiquette-recherche">Nom, e-mail ou téléphone</label>
+        <label for="recherche" class="etiquette-recherche">Élève</label>
         <!-- Nom de champ neutre et autocomplétion inconnue du navigateur : sinon
              Chrome reconnaît un formulaire de contact et affiche SA liste, qui
              recouvre nos résultats (une fenêtre native passe toujours dessus). -->
         <input id="recherche" name="champR" type="text" class="champ-recherche"
-               autocomplete="pas-de-remplissage-auto" spellcheck="false"
+               autocomplete="pas-de-remplissage-auto" spellcheck="false" placeholder="Nom, e-mail ou téléphone"
                role="combobox" aria-expanded="false" aria-controls="resultats" aria-autocomplete="list" />
         <p id="etatRecherche" class="muted petit" role="status"></p>
         <div id="resultats" class="carte liste-eleves" role="listbox" aria-label="Élèves trouvés" hidden></div>

@@ -3,7 +3,8 @@
 // Aux heures de pointe, la file attend : après un encaissement, la caisse ne
 // montre pas une page à fermer. Le panier est déjà vidé, le focus est dans la
 // recherche d'élève (ecran-eleve.js), et une bande en haut dit ce qui vient
-// d'être encaissé : « Encaissé · 1 760 € en 3 chèques · Léa MARTIN ». Le
+// d'être encaissé : « Encaissé · 1 760 € en 3 chèques · Léa MARTIN · E-mail
+// envoyé ». Le
 // récapitulatif (échéancier, ce que le CRM a enregistré, liens vers la fiche
 // et le contrat) se déplie sous « Voir le détail ». La bande reste jusqu'au
 // prochain encaissement.
@@ -33,6 +34,20 @@ export function texteRepartition(d) {
   if (d.moyen === 'mixte') return `${tot} : ${eurosCourts(d.especesCents)} en espèces + ${eurosCourts(d.carteCents)} par carte`;
   if (d.moyen === 'especes') return `${tot} en espèces`;
   return `${tot} par carte`;
+}
+
+/**
+ * PURE. Ce que la bande dit de l'e-mail à l'élève, d'après le CODE de l'effet
+ * renvoyé par le CRM (jamais d'après son texte) : `ticket_envoye` → « E-mail
+ * envoyé », `ticket_echec` ou `ticket_sans_adresse` → « E-mail non envoyé »
+ * (bande orange). Tout autre code (envoi désactivé, CRM plus ancien) : rien.
+ */
+export function etatEmail(declaration) {
+  const effets = declaration && Array.isArray(declaration.effets) ? declaration.effets : [];
+  const codes = effets.map((e) => e && e.code);
+  if (codes.includes('ticket_echec') || codes.includes('ticket_sans_adresse')) return { texte: 'E-mail non envoyé', alerte: true };
+  if (codes.includes('ticket_envoye')) return { texte: 'E-mail envoyé', alerte: false };
+  return null;
 }
 
 /** PURE. Titre et ton de la bande selon la réponse du CRM. */
@@ -76,17 +91,19 @@ function recapitulatif(r, utilisateur) {
 
 function dessiner(hote, etat) {
   const r = etat.bande;
-  const { genre, titre, suite } = enteteBande(r.declaration);
+  const entete = enteteBande(r.declaration);
+  const email = etatEmail(r.declaration);
+  const genre = email && email.alerte ? 'warn' : entete.genre;
   const ico = el('span', { class: 'ico', 'aria-hidden': 'true' });
   if (genre === 'ok') ico.innerHTML = ICO_OK; // pictogramme constant, sans donnée
-  const resume = [texteRepartition(r.devis), r.eleve, suite].filter(Boolean).join(' · ');
+  const resume = [texteRepartition(r.devis), r.eleve, entete.suite, email && email.texte].filter(Boolean).join(' · ');
   const bascule = el('button', {
     type: 'button', class: 'lien-btn', 'aria-expanded': String(detailOuvert), 'aria-controls': 'detailBande',
     onclick: () => { detailOuvert = !detailOuvert; dessiner(hote, etat); },
   }, detailOuvert ? 'Masquer le détail' : 'Voir le détail');
   remplir(hote,
     el('div', { class: `bande bande-${genre}`, role: 'status' }, ico,
-      el('span', { class: 'grandit' }, el('b', {}, titre), resume ? ` · ${resume}` : ''), bascule),
+      el('span', { class: 'grandit' }, el('b', {}, entete.titre), resume ? ` · ${resume}` : ''), bascule),
     detailOuvert ? recapitulatif(r, etat.utilisateur) : null);
 }
 

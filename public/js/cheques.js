@@ -11,12 +11,13 @@
 // devis n'est pas à jour. La zone n'est reconstruite que quand sa STRUCTURE
 // change (lignes, dates, bornes) ; un montant tapé ne perd jamais le focus.
 
-import { el, remplir, euros, jourCourt, jourEtQuantieme, lendemain, aujourdhuiParis } from './format.js';
+import { el, remplir, eurosCourts, jourCourt, jourEtQuantieme, lendemain, aujourdhuiParis } from './format.js';
 import {
   devisAJour, requeteDevis, chequesProposes, nombreCheques,
   choisirNombreCheques, choisirPremierCheque, avancerCheque, saisirMontantCheque,
 } from './etat.js';
 import { avecCheques } from './etat-cheques.js';
+import { prixPourNombre } from './panier-affiche.js';
 
 const JOURS_MAX = 62; // garde-fou de la rangée de pastilles (le réglage d'agence va jusqu'à 30 jours ouvrés)
 
@@ -27,6 +28,7 @@ let memo = { contexte: null, echeancier: null };
 let structure = null;
 let champs = [];   // [{ index, input, cellule }] des chèques 1 à n−1
 let restes = [];   // [{ rang, noeud }] montants affichés en texte
+let alerte = null; // erreur du CRM sur un montant ou une date, sous l'échéancier
 
 /** 58600 → « 586 », 58650 → « 586,50 » : la valeur d'un champ de montant. */
 function enSaisie(cents) {
@@ -48,7 +50,9 @@ function rangeeNombre(etat, proposes, nombre, verrou) {
   }
   const boutons = [];
   for (let k = 1; k <= proposes; k += 1) {
-    const sous = esp ? `paiement en ${k + 1} fois` : (k === 1 ? 'prix comptant' : `prix en ${k} fois`);
+    // Le prix sous le nombre : l'œil n'a pas à faire l'aller-retour vers le total.
+    const prix = esp ? null : prixPourNombre(etat.eleve, etat.produit, k);
+    const sous = esp ? `paiement en ${k + 1} fois` : (prix !== null ? eurosCourts(prix) : (k === 1 ? 'prix comptant' : `prix en ${k} fois`));
     boutons.push(el('button', {
       type: 'button', class: 'sel nb-choix', 'aria-pressed': String(nombre === k), disabled: verrou,
       onclick: () => agir(choisirNombreCheques, k),
@@ -57,7 +61,7 @@ function rangeeNombre(etat, proposes, nombre, verrou) {
   return el('div', {},
     el('span', { class: 'etiq', id: 'nbChequesLib' }, 'Nombre de chèques'),
     el('div', { class: 'nb', role: 'group', 'aria-labelledby': 'nbChequesLib', style: `grid-template-columns:repeat(${proposes},minmax(0,1fr))` }, boutons),
-    esp ? el('p', { class: 'sousligne' }, 'Les espèces comptent comme 1er versement.') : null);
+    esp ? el('p', { class: 'sousligne', style: 'margin-top:8px' }, 'Les espèces comptent comme 1er versement : 3 versements au plus.') : null);
 }
 
 function libellePremier(ech, nombre) {
@@ -141,7 +145,7 @@ function celluleMontant(v, nombre, verrou) {
     champs.push({ index, input });
     return el('td', {}, el('span', { class: 'mt-ch' }, input, el('span', { 'aria-hidden': 'true' }, '€')));
   }
-  const noeud = el('span', { class: 'num' }, euros(v.amountCents));
+  const noeud = el('span', { class: 'num' }, eurosCourts(v.amountCents));
   restes.push({ rang: v.rang, noeud });
   const reste = v.nature === 'cheque' && nombre > 1 ? el('span', { class: 'sousligne bloc' }, 'le reste, calculé') : null;
   return el('td', {}, noeud, reste);
@@ -160,6 +164,7 @@ function tableau(ech, nombre, verrou) {
   const reglable = ech.versements.some((v) => v.montantModifiable || v.avancable);
   return [
     el('table', { class: 'ech', 'aria-label': 'Échéancier' }, el('tbody', {}, lignes)),
+    alerte,
     reglable ? el('p', { class: 'sousligne' },
       'Modifiez un montant (un gros 1er chèque, par exemple) : les autres se recalculent seuls. Une date peut être avancée à la demande de l\'élève, jamais reculée.') : null,
   ];
@@ -185,11 +190,23 @@ function majMontants(etat, ech) {
   }
   for (const { rang, noeud } of restes) {
     const v = ech.versements.find((x) => x.rang === rang);
-    noeud.textContent = v ? euros(v.amountCents) : '—';
+    noeud.textContent = v ? eurosCourts(v.amountCents) : '—';
   }
 }
 
-export function rendreCheques(etat) {
+/** L'erreur du CRM sur l'échéancier, juste sous lui ; les montants saisis sont entourés. */
+function majAlerte(etat, erreur) {
+  alerte.hidden = !erreur;
+  alerte.textContent = erreur || '';
+  const montants = Boolean(erreur) && etat.devisChamp === 'montants';
+  for (const { index, input } of champs) {
+    const saisi = String(etat.cheques.montants[index] || '').trim();
+    input.setAttribute('aria-invalid', String(montants && Boolean(saisi)));
+  }
+}
+
+/** `erreur` : message du CRM qui désigne un montant ou une date (panier.js), ou null. */
+export function rendreCheques(etat, erreur = null) {
   if (!zone) return;
   // Sans formule choisie, il n'y a rien à découper : la zone attend.
   if (etat.ecran !== 'panier' || !avecCheques(etat.moyen) || !etat.produit) {
@@ -217,12 +234,14 @@ export function rendreCheques(etat) {
       rangeeNombre(etat, proposes, nombre, verrou),
       nombre && !ech && requeteDevis(etat).corps ? el('p', { class: 'sousligne' }, 'Calcul de l\'échéancier…') : null,
       ech && ech.premier ? blocPremier(etat, ech, nombre, verrou) : null,
-      ech ? tableau(ech, nombre, verrou) : null);
+      ech ? tableau(ech, nombre, verrou) : alerte);
   }
   majMontants(etat, ech);
+  majAlerte(etat, erreur);
 }
 
 export function initCheques(m, conteneur) {
   magasin = m;
   zone = conteneur;
+  alerte = el('p', { class: 'reste trop', role: 'alert', hidden: true });
 }

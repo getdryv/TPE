@@ -30,9 +30,9 @@ export function euros(cents) {
 }
 
 /**
- * Forme courte des pastilles : 5000 → « 50 € », 1250 → « 12,50 € ».
- * Réservée aux mentions (« Promo en cours · −50 € ») ; les prix gardent
- * toujours leurs centimes.
+ * Forme courte, celle de la maquette : 176000 → « 1 760 € », 1250 → « 12,50 € ».
+ * Les centimes n'apparaissent que s'il y en a. C'est le format de l'écran de
+ * caisse (panier, tuiles, échéancier, bouton, bande).
  */
 export function eurosCourts(cents) {
   if (!Number.isInteger(cents)) return '';

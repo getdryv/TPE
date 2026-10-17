@@ -14,7 +14,7 @@
 // quand ce qu'il montre change (signature), et le focus clavier est rendu au
 // même bouton radio — sinon les flèches perdraient leur place à chaque geste.
 
-import { el, remplir, euros, eurosCourts, heures } from './format.js';
+import { el, remplir, eurosCourts, heures } from './format.js';
 import { choisirFormule, cocherAccompagnement } from './etat.js';
 import { lignesCascade, resoudre, selectionDe, selectionInitiale, choisir } from './cascade.js';
 
@@ -52,13 +52,13 @@ function ligneSegments({ nom, libelle, options, valeur, mention, verrou, surChoi
 /** Nom et prix comptant du forfait ou du pack retenu ; la promotion en cours, barrée. */
 function retenu(t, precision) {
   const prix = t.promo
-    ? [el('span', { class: 'retenu-prix' }, el('s', {}, euros(t.prixCents)), ' ', el('b', {}, euros(t.promo.prixRemiseCents))),
+    ? [el('span', { class: 'retenu-prix' }, el('s', {}, eurosCourts(t.prixCents)), ' ', el('b', {}, eurosCourts(t.promo.prixRemiseCents))),
       el('span', { class: 'chip promo' }, `Promo en cours · ${eurosCourts(-t.promo.remiseCents)}`)]
-    : [el('span', { class: 'retenu-prix' }, el('b', {}, euros(t.prixCents)))];
+    : [el('span', { class: 'retenu-prix' }, el('b', {}, eurosCourts(t.prixCents)))];
   return el('div', { class: 'retenu', role: 'status' },
     el('div', { class: 'retenu-nom' }, t.nom),
     el('div', { class: 'retenu-ligne' }, prix),
-    el('p', { class: 'muted petit' }, precision));
+    el('p', { class: 'muted precision' }, precision));
 }
 
 /** Reconstruit `zone` seulement si ce qu'elle montre a changé ; rend le focus au même champ. */
@@ -113,7 +113,7 @@ export function rendreForfait(zone, etat) {
       mention: mentionDe(l), verrou, surChoix: surChoix(l.cle),
     }))),
     choisi
-      ? retenu(choisi, 'Prix comptant. En 2 ou 3 versements, le panier affiche le prix en plusieurs fois.')
+      ? retenu(choisi, 'Prix comptant')
       : el('p', { class: 'muted petit' }, 'Choisissez les heures : le forfait et son prix s\'affichent ici.'),
   ]);
 }
@@ -144,7 +144,7 @@ function caseAccompagnement(offre, coche, verrou) {
   return el('label', { class: `case-option${deja ? ' case-option-grisee' : ''}`, for: 'accompagnementHeures' },
     boite,
     el('span', { class: 'case-option-texte' },
-      el('span', { class: 'gras' }, `Ajouter l'accompagnement à l'examen (${euros(offre.tarifCents)})`),
+      el('span', { class: 'gras' }, `Ajouter l'accompagnement à l'examen (${eurosCourts(offre.tarifCents)})`),
       el('span', { class: 'muted petit' }, deja
         ? 'Déjà réglé pour le passage en cours.'
         : 'Réglé ici, il vaut pour le passage en cours : les relances s\'arrêtent.')));
@@ -177,7 +177,7 @@ export function rendreHeuresSupp(zone, etat) {
     !packs.length
       ? el('p', { class: 'muted petit' }, `Aucun pack d'heures ${texteVehicule(etat).toLowerCase()} au catalogue de l'agence.`)
       : choisi
-        ? retenu(choisi, 'Prix comptant. Seuls les packs du véhicule de l\'élève sont proposés.')
+        ? retenu(choisi, 'Prix comptant')
         : el('p', { class: 'muted petit' }, 'Choisissez un pack : son prix s\'affiche ici.'),
     packs.length ? caseAccompagnement(offre, coche, verrou) : null,
   ]);

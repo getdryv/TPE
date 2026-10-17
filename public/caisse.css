@@ -10,7 +10,7 @@
   --selection: #f2f7fe;
   --texte: #1a1f36;
   --secondaire: #4a5468;
-  --bordure: #d5dbe3;
+  --bordure: #8792a2;        /* 3,15:1 sur blanc : tout contrôle (boutons contour, champs, pastilles) */
   --bordure-champ: #8792a2;  /* 3,15:1 sur blanc : boutons de choix et champs du panier */
   --ok-texte: #0e6245;
   --ok-fond: #e3f6ec;
@@ -56,11 +56,11 @@ a:hover { color: var(--primaire-fonce); }
 .entete-titre { font-weight: 700; font-size: 17px; }
 .entete-qui { font-size: 14px; }
 .entete-lecteur { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; max-width: 100%; min-width: 0; }
-.entete-lecteur .chip { white-space: normal; }
-.detail-technique { font-size: 12px; color: var(--secondaire); font-family: ui-monospace, Menlo, monospace; }
+.entete-lecteur .chip { white-space: normal; padding-top: 2px; padding-bottom: 2px; }
+.detail-technique { font-size: 14px; color: var(--secondaire); font-family: ui-monospace, Menlo, monospace; }
 .entete-lecteur select {
-  height: 40px; border: 1px solid var(--bordure); border-radius: 8px; background: #fff;
-  font: inherit; font-size: 13px; color: var(--texte); padding: 0 8px;
+  height: 48px; border: 1px solid var(--bordure-champ); border-radius: 8px; background: #fff;
+  font: inherit; font-size: 15px; color: var(--texte); padding: 0 8px;
 }
 
 .bandeau-secours {
@@ -75,16 +75,19 @@ a:hover { color: var(--primaire-fonce); }
   background: #fff; color: var(--texte); font: inherit; font-size: 15px; font-weight: 600;
   cursor: pointer; text-align: center;
 }
-.btn:hover { border-color: #b8c1cd; }
-.btnp { background: var(--primaire); border-color: var(--primaire); color: #fff; }
+.btn:hover { border-color: #5b6678; }
+.btnp { background: var(--primaire); border-color: var(--primaire); color: #fff; font-weight: 700; }
 .btnp:hover { background: var(--primaire-fonce); border-color: var(--primaire-fonce); }
-.btn:disabled { cursor: not-allowed; background: var(--gris); border-color: var(--bordure); color: #3c4557; }
-.lien-btn { background: none; border: 0; padding: 0; font: inherit; font-size: 14px; color: var(--primaire); cursor: pointer; }
+.btn:disabled { cursor: not-allowed; background: var(--gris); border-color: var(--bordure-champ); color: var(--texte); }
+.lien-btn {
+  background: none; border: 0; padding: 0; font: inherit; font-size: 15px; font-weight: 600; color: var(--primaire-fonce);
+  text-decoration: underline; text-underline-offset: 3px; min-height: 48px; cursor: pointer;
+}
 .lien-btn:hover { color: var(--primaire-fonce); }
 
 .chip {
-  display: inline-flex; align-items: center; min-height: 24px; padding: 2px 9px; border-radius: 12px;
-  font-size: 12px; font-weight: 600; white-space: nowrap;
+  display: inline-flex; align-items: center; min-height: 24px; padding: 0 10px; border-radius: 12px;
+  font-size: 13px; font-weight: 700; white-space: nowrap;
 }
 .ok { background: #e3f6ea; color: #0d6832; }
 .promo, .warn { background: #fff1dc; color: #8a4b00; }
@@ -102,8 +105,9 @@ a:hover { color: var(--primaire-fonce); }
 }
 .in:focus { border: 2px solid var(--primaire); padding: 0 13px; outline: none; }
 /* Les champs sont dans leur libellé (graisse 600) : le texte saisi reprend une
-   graisse normale, et un exemple grisé porte toujours « ex. ». */
-.in, .in-especes { font-weight: 400; }
+   graisse normale, et un exemple grisé porte toujours « ex. ». Le champ des
+   espèces est un montant qu'on relit : il garde sa graisse 700. */
+.in { font-weight: 400; }
 .in::placeholder, .in-especes::placeholder, .champ-recherche::placeholder { color: var(--secondaire); font-weight: 400; }
 .champ { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
 .ligne-montant { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 400; }
@@ -112,7 +116,7 @@ a:hover { color: var(--primaire-fonce); }
 /* ─── Écran 1 : l'élève ───────────────────────────────────────────────────── */
 .ecran-centre { padding: 40px 16px; display: flex; justify-content: center; }
 .colonne-eleve { width: 720px; max-width: 100%; display: flex; flex-direction: column; gap: 18px; }
-.etiquette-recherche { font-size: 14px; margin-bottom: -10px; }
+.etiquette-recherche { font-size: 17px; font-weight: 600; margin-bottom: -10px; }
 .champ-recherche {
   height: 56px; border: 2px solid var(--primaire); border-radius: 12px; padding: 0 18px;
   font: inherit; font-size: 18px; width: 100%; color: var(--texte); background: #fff;
@@ -127,7 +131,7 @@ a:hover { color: var(--primaire-fonce); }
 .ligne-eleve:last-child { border-bottom: 0; }
 .ligne-eleve:hover, .ligne-eleve[aria-selected="true"] { background: var(--selection); }
 .ligne-eleve .nom { font-weight: 600; }
-.ligne-eleve .sub { font-size: 13px; }
+.ligne-eleve .sub { font-size: 14px; }
 .chevron { color: var(--secondaire); }
 .encart-creation { padding: 18px 20px; display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
 
@@ -141,7 +145,7 @@ a:hover { color: var(--primaire-fonce); }
   align-self: flex-start; max-width: 100%;
 }
 .onglet {
-  min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid transparent; background: transparent;
+  min-height: 48px; padding: 0 18px; border-radius: 10px; border: 1px solid transparent; background: transparent;
   font: inherit; font-size: 15px; font-weight: 600; color: #3c4557; cursor: pointer;
 }
 .onglet[aria-selected="true"] { background: #fff; border-color: var(--bordure); color: var(--primaire-fonce); }
@@ -151,24 +155,26 @@ a:hover { color: var(--primaire-fonce); }
 }
 
 /* Sélecteurs segmentés (maquette du contrat de formation) : de vrais radios,
-   masqués ; le libellé fait le segment. Choisi = fond blanc, texte bleu. */
+   masqués ; le libellé fait le segment. Choisi = fond blanc, texte bleu.
+   Indisponible = barré en #4a5468 (6,72:1), jamais un gris pâle. */
 .selecteurs { display: flex; flex-direction: column; gap: 18px; }
 .cascade { display: flex; flex-direction: column; gap: 14px; }
 .ligne-seg { display: flex; align-items: center; gap: 6px 16px; }
-.ligne-seg-libelle { width: 88px; flex-shrink: 0; font-size: 13px; font-weight: 600; color: #3c4557; }
+.ligne-seg-libelle { width: 88px; flex-shrink: 0; font-size: 15px; font-weight: 600; color: var(--texte); }
 .ligne-seg-choix { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; }
 .segments { display: inline-flex; flex-wrap: wrap; gap: 4px; max-width: 100%; padding: 4px; border-radius: 10px; background: var(--gris); }
 .segment {
-  position: relative; display: flex; align-items: center; min-height: 40px; padding: 6px 16px; border-radius: 8px;
+  position: relative; display: flex; align-items: center; min-height: 48px; padding: 6px 16px; border-radius: 8px;
   font-size: 14px; font-weight: 600; color: #3c4557; cursor: pointer;
 }
 .segment input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
 .segment:hover { background: #fff; color: var(--texte); }
 .segment:has(input:checked) { background: #fff; color: var(--primaire-fonce); box-shadow: 0 1px 2px rgba(26, 31, 54, .12); }
-.segment:has(input:disabled) { color: #8792a2; cursor: not-allowed; background: transparent; }
+.segment:has(input:disabled) { color: var(--secondaire); text-decoration: line-through; cursor: not-allowed; background: transparent; }
 .segment:has(input:checked:disabled) { background: #fff; color: #3c4557; }
 .segment:has(input:focus-visible) { outline: 3px solid var(--primaire); outline-offset: 2px; }
-.mention { font-size: 12px; color: var(--secondaire); }
+.mention { font-size: 14px; color: var(--secondaire); }
+.retenu .precision { margin: 0; font-size: 15px; font-weight: 400; }
 .retenu { border-top: 1px solid var(--filet); padding-top: 16px; display: flex; flex-direction: column; gap: 6px; }
 .retenu-nom { font-size: 17px; font-weight: 700; }
 .retenu-ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -194,7 +200,7 @@ a:hover { color: var(--primaire-fonce); }
 .carte-libre { padding: 20px; display: flex; flex-direction: column; gap: 14px; max-width: 560px; }
 .pills { display: flex; flex-wrap: wrap; gap: 8px; }
 .pill {
-  min-height: 40px; padding: 0 14px; border: 1px solid var(--bordure); border-radius: 20px; background: #fff;
+  min-height: 48px; padding: 0 14px; border: 1px solid var(--bordure); border-radius: 24px; background: #fff;
   font: inherit; font-size: 14px; color: var(--texte); cursor: pointer;
 }
 .pill[aria-pressed="true"] { padding: 0 13px; }
@@ -231,7 +237,7 @@ a:hover { color: var(--primaire-fonce); }
 }
 .sel:disabled { background: var(--gris); color: #3c4557; cursor: not-allowed; }
 .sel[aria-pressed="true"]:disabled { background: var(--selection); color: var(--primaire-fonce); }
-.etiq { display: block; font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+.etiq { display: block; font-size: 17px; font-weight: 600; margin-bottom: 12px; }
 .moyens { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .moyen { grid-column: span 2; min-height: 56px; padding: 6px 8px; font-size: 16px; line-height: 1.2; text-align: center; }
 .moyen.large { grid-column: span 3; }
@@ -242,10 +248,20 @@ a:hover { color: var(--primaire-fonce); }
   display: flex; flex-direction: column; gap: 12px;
 }
 .boite-especes label { font-size: 14px; font-weight: 600; }
-.in-especes { height: 48px; border: 2px solid var(--primaire); border-radius: 10px; padding: 0 14px; font: inherit; font-size: 20px; text-align: right; width: 100%; }
-.reste { display: flex; justify-content: space-between; font-size: 17px; }
+.champ-especes { display: flex; align-items: center; gap: 8px; }
+.in-especes {
+  height: 56px; border: 1px solid var(--bordure-champ); border-radius: 10px; padding: 0 14px; font: inherit;
+  font-size: 24px; font-weight: 700; color: var(--texte); background: #fff; text-align: right; width: 100%; max-width: 220px;
+}
+.in-especes:focus { outline: none; border-color: var(--primaire); box-shadow: inset 0 0 0 1px var(--primaire); }
+.in-especes[aria-invalid="true"] { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
+.euro-especes { font-size: 24px; font-weight: 700; }
+/* « Reste 1 460 € en chèques » : une phrase, lue d'un coup. */
+.reste { display: block; margin: 0; font-size: 20px; font-weight: 700; }
+/* Erreur du CRM sur un champ, juste sous ce champ : #a4161a (7,75:1). */
+.reste.trop { font-size: 17px; color: var(--danger); }
 .statut { font-weight: 600; min-height: 22px; }
-.note { margin: 0; font-size: 13px; }
+.note { margin: 0; font-size: 14px; }
 
 /* ─── Écrans 7, 9 et identification ───────────────────────────────────────── */
 .ecran-issue { display: flex; justify-content: center; padding: 60px 16px; }
@@ -304,7 +320,7 @@ a:hover { color: var(--primaire-fonce); }
 .bande-ok { background: var(--ok-fond); color: var(--ok-texte); border-bottom: 1px solid var(--ok-bord); }
 .bande-warn { background: var(--warn-fond); color: var(--warn-texte); border-bottom: 1px solid var(--warn-bord); }
 .bande .ico { display: inline-flex; flex-shrink: 0; }
-.bande .lien-btn { color: inherit; font-size: 15px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; min-height: 40px; }
+.bande .lien-btn { color: inherit; }
 .detail-bande { padding: 16px 28px; background: #fff; border-bottom: 1px solid var(--filet); display: flex; flex-direction: column; gap: 12px; }
 .recap { margin: 0; border: 1px solid var(--filet); border-radius: 12px; max-width: 720px; }
 .recap div { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 4px 16px; padding: 10px 16px; border-bottom: 1px solid var(--filet); font-size: 15px; }
@@ -316,10 +332,10 @@ a:hover { color: var(--primaire-fonce); }
 @media (max-width: 900px) {
   .bande, .detail-bande { padding-left: 16px; padding-right: 16px; }
 }
+/* Les moyens restent en 3 + 2 à toutes les largeurs : « Chèques » ne change
+   jamais de place, « Espèces + chèques » passe sur deux lignes. */
 @media (max-width: 520px) {
   .recap div { grid-template-columns: minmax(0, 1fr); }
-  .moyens { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .moyen, .moyen.large { grid-column: span 1; }
 }
 
 .statut-ok { color: #0d6832; }
