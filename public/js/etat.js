@@ -10,11 +10,17 @@
 // ces éléments incrémente `version`, ce qui périme le devis en main ; une
 // réponse de devis arrivée pour une ancienne version est ignorée. On ne peut
 // donc jamais envoyer au lecteur le prix d'un panier qui n'est plus affiché.
+// Les choix d'un paiement en chèques vivent dans etat-cheques.js. AUCUN moyen
+// n'est présélectionné : sans moyen choisi, aucun devis ne part.
 
 import { lireMontant } from './format.js';
+import {
+  chequesVides, avecCheques, avecEspeces, versementsMaxProduit, nombreChequesProposes, nombreEffectif,
+  demandeCheques, avecNombre, avecPremier, avecAvance, avecMontant,
+} from './etat-cheques.js';
 
 export const ONGLETS = ['forfait', 'heures_supp', 'prepa', 'libre'];
-export const MOYENS = ['carte', 'mixte', 'especes'];
+export const MOYENS = ['carte', 'especes', 'cheques', 'mixte', 'especes_cheques'];
 
 /** Le panier vide, sans élève. Mode et utilisateur sont conservés à part. */
 function panierVide() {
@@ -23,8 +29,9 @@ function panierVide() {
     onglet: 'forfait',
     produit: null,        // voir `requeteDevis` pour les formes possibles
     accompagnement: false, // Heures supp : case « accompagnement à l'examen » cochée
-    moyen: 'carte',
+    moyen: null,          // aucun par défaut
     especesSaisie: '',    // texte tel que tapé ; converti à la demande
+    cheques: chequesVides(), // nombre, 1er chèque, avances, montants saisis
     version: 0,
     devis: null,          // DevisLisible
     jetonDevis: null,     // seul le jeton fait foi côté serveur
@@ -33,7 +40,7 @@ function panierVide() {
     paiement: null,       // { etape: 'envoi' | 'carte' | 'capture' | 'especes' }
     erreur: null,         // message affiché dans le panier (envoi impossible…)
     refus: null,          // motif du lecteur (écran 9)
-    resultat: null,       // { declaration, montantCents, incomplet? } (écran 7)
+    resultat: null,       // { declaration, devis, eleve, incomplet? } (écran 7 : cas à surveiller)
   };
 }
 
@@ -46,16 +53,26 @@ export function creerEtat() {
     message: null,        // message lisible du serveur accompagnant la raison
     secours: null,        // { indisponible, prenom, nom, email, studentId }
     especesARendre: 0,    // rappel affiché sur l'écran 1 après un abandon
+    bande: null,          // dernier encaissement réussi (bande verte), jusqu'au suivant
     ...panierVide(),
   };
 }
 
 // ─── Lectures ────────────────────────────────────────────────────────────────
 
-/** Espèces saisies en centimes (mixte seulement), ou null si illisibles. */
+/** Espèces saisies en centimes (espèces + carte ou + chèques), ou null si illisibles. */
 export function especesCents(etat) {
-  return etat.moyen === 'mixte' ? lireMontant(etat.especesSaisie) : null;
+  return avecEspeces(etat.moyen) ? lireMontant(etat.especesSaisie) : null;
 }
+
+/** Combien de boutons « N chèques » (affichage ; le CRM borne). */
+export function chequesProposes(etat) {
+  const echeancier = devisAJour(etat) ? etat.devis.echeancier : null;
+  return nombreChequesProposes(etat.moyen, versementsMaxProduit(etat.eleve, etat.produit), echeancier);
+}
+
+/** Le nombre de chèques retenu pour ce panier, ou null. */
+export const nombreCheques = (etat) => nombreEffectif(etat.cheques, chequesProposes(etat));
 
 /**
  * Le corps de `POST /api/caisse/devis` pour ce panier, ou `{ manque }` si le
@@ -84,11 +101,17 @@ export function requeteDevis(etat) {
     return { manque: 'produit' };
   }
 
+  if (!etat.moyen) return { manque: 'moyen' };
   const corps = { studentId: etat.eleve.eleve.id, produit, moyen: etat.moyen };
-  if (etat.moyen === 'mixte') {
+  if (avecEspeces(etat.moyen)) {
     const esp = especesCents(etat);
     if (!esp) return { manque: 'especes' };
     corps.especesCents = esp;
+  }
+  if (avecCheques(etat.moyen)) {
+    const r = demandeCheques(etat.cheques, nombreCheques(etat));
+    if (r.manque) return { manque: r.manque };
+    corps.cheques = r.demande;
   }
   return { corps };
 }
@@ -128,13 +151,8 @@ function panierModifie(etat, changements) {
  */
 export function sessionOuverte(etat, session, crmConfigure = false) {
   const mode = session && session.mode;
-  const base = {
-    ...etat,
-    mode,
-    utilisateur: (session && session.utilisateur) || null,
-    raison: (session && session.raison) || null,
-    message: (session && session.message) || null,
-  };
+  const lu = (cle) => (session && session[cle]) || null;
+  const base = { ...etat, mode, utilisateur: lu('utilisateur'), raison: lu('raison'), message: lu('message') };
   if (mode === 'catalogue') return { ...base, ecran: 'eleve' };
   if (mode === 'identification_requise') return { ...base, ecran: 'identification' };
   // « Le CRM ne répond pas » seulement s'il est déclaré ET muet : sans CRM, ou
@@ -173,7 +191,7 @@ export function choisirOnglet(etat, onglet) {
   if (onglet === 'libre') {
     produit = { type: 'libre', montantSaisie: '', note: '' };
   }
-  return panierModifie(etat, { onglet, produit, accompagnement: false });
+  return panierModifie(etat, { onglet, produit, accompagnement: false, cheques: chequesVides() });
 }
 
 /** Une tuile touchée : forfait ou pack d'heures. */
@@ -181,7 +199,7 @@ export function choisirFormule(etat, type, formuleId) {
   if (!formuleId || (type !== 'forfait' && type !== 'heures_supp')) return etat;
   const p = etat.produit;
   if (p && p.type === type && p.formuleId === formuleId) return etat;
-  return panierModifie(etat, { produit: { type, formuleId } });
+  return panierModifie(etat, { produit: { type, formuleId }, cheques: chequesVides() });
 }
 
 /**
@@ -209,15 +227,25 @@ export function saisirLibre(etat, champs) {
   return panierModifie(etat, { produit: { ...p, ...champs } });
 }
 
+/** Changer de moyen efface les choix de chèques ; les espèces tapées passent d'un mixte à l'autre. */
 export function choisirMoyen(etat, moyen) {
   if (!MOYENS.includes(moyen) || moyen === etat.moyen) return etat;
-  return panierModifie(etat, { moyen, especesSaisie: moyen === 'mixte' ? etat.especesSaisie : '' });
+  const garder = avecEspeces(moyen) && avecEspeces(etat.moyen);
+  return panierModifie(etat, { moyen, especesSaisie: garder ? etat.especesSaisie : '', cheques: chequesVides() });
 }
 
 export function saisirEspeces(etat, texte) {
-  if (etat.moyen !== 'mixte' || texte === etat.especesSaisie) return etat;
+  if (!avecEspeces(etat.moyen) || texte === etat.especesSaisie) return etat;
   return panierModifie(etat, { especesSaisie: String(texte ?? '') });
 }
+
+// Chèques : chaque choix redemande l'échéancier au CRM (etat-cheques.js).
+const modifierCheques = (etat, cheques) =>
+  (cheques === etat.cheques || !avecCheques(etat.moyen) ? etat : panierModifie(etat, { cheques }));
+export const choisirNombreCheques = (etat, n) => modifierCheques(etat, avecNombre(etat.cheques, n));
+export const choisirPremierCheque = (etat, iso) => modifierCheques(etat, avecPremier(etat.cheques, iso));
+export const avancerCheque = (etat, index, iso) => modifierCheques(etat, avecAvance(etat.cheques, index, iso));
+export const saisirMontantCheque = (etat, index, texte) => modifierCheques(etat, avecMontant(etat.cheques, index, texte));
 
 /** Réponse du devis : retenue seulement si le panier n'a pas bougé entre-temps. */
 export function devisRecu(etat, version, reponse) {
@@ -232,8 +260,9 @@ export function devisRefuse(etat, version, message) {
 
 // ─── Paiement ────────────────────────────────────────────────────────────────
 
+/** Un encaissement commence : la bande du précédent s'efface. */
 export function paiementEtape(etat, etape) {
-  return { ...etat, paiement: { etape }, erreur: null, refus: null };
+  return { ...etat, paiement: { etape }, erreur: null, refus: null, bande: null };
 }
 
 /** Rien n'est parti (envoi refusé par le serveur) : on reste sur le panier. */
@@ -246,8 +275,16 @@ export function paiementRefuse(etat, motif) {
   return { ...etat, paiement: null, refus: motif || 'Paiement non abouti.', ecran: 'refuse' };
 }
 
+/**
+ * Encaissement abouti. Cas normal : bande verte, panier vidé, caisse aussitôt
+ * prête pour l'élève suivant (écran 1, focus dans la recherche). Les deux cas
+ * qui demandent d'agir (carte prise mais encaissement incomplet, refus du CRM
+ * après débit) gardent l'écran 7 plein, qu'on ne peut pas manquer.
+ */
 export function paiementAccepte(etat, resultat) {
-  return { ...etat, paiement: null, erreur: null, refus: null, resultat, ecran: 'accepte' };
+  const aSurveiller = Boolean(resultat && (resultat.incomplet || (resultat.declaration && resultat.declaration.statut === 'refus')));
+  if (aSurveiller) return { ...etat, paiement: null, erreur: null, refus: null, resultat, ecran: 'accepte' };
+  return { ...etat, ...panierVide(), version: etat.version + 1, ecran: 'eleve', especesARendre: 0, bande: resultat };
 }
 
 /** Écran 9 → « Réessayer » : même panier, même devis (redemandé s'il expire). */
@@ -277,19 +314,9 @@ export function nouvelEncaissement(etat) {
 export function basculerSecours(etat, { indisponible, eleve = null }) {
   // `eleve` : un élève trouvé par la recherche mais pas encore chargé
   // ({ id, prenom, nom, email }) ; sinon celui du panier.
-  const e = eleve || (etat.eleve && etat.eleve.eleve);
-  return {
-    ...etat,
-    ecran: 'secours',
-    paiement: null,
-    secours: {
-      indisponible: Boolean(indisponible),
-      prenom: (e && e.prenom) || '',
-      nom: (e && e.nom) || '',
-      email: (e && e.email) || '',
-      studentId: (e && e.id) || null,
-    },
-  };
+  const e = eleve || (etat.eleve && etat.eleve.eleve) || {};
+  const secours = { indisponible: Boolean(indisponible), prenom: e.prenom || '', nom: e.nom || '', email: e.email || '', studentId: e.id || null };
+  return { ...etat, ecran: 'secours', paiement: null, secours };
 }
 
 // ─── Magasin ─────────────────────────────────────────────────────────────────

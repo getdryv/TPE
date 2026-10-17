@@ -1,6 +1,9 @@
 // ─── Écrans d'issue : accepté (7), refusé (9), identification requise ───────
 //
-// Accepté : ce que le CRM a enregistré, en ses propres mots (`effets[].texte`).
+// Un encaissement normal ne passe plus par l'écran 7 : la bande verte
+// (bande.js) le remplace et la caisse est aussitôt prête. L'écran 7 reste pour
+// les deux cas où l'argent est pris mais où il faut agir (encaissement
+// incomplet, refus du CRM) : ce que le CRM a dit, en ses propres mots.
 // Refusé : le panier est GARDÉ tel quel ; rien n'a été débité ni enregistré.
 // Identification : la caisse ne sait pas qui encaisse, elle s'ouvre depuis le CRM.
 
@@ -8,6 +11,7 @@ import * as cadre from './cadre.js';
 import { el, remplir, euros } from './format.js';
 import { reessayer, changerDeMoyen, abandonner, nouvelEncaissement } from './etat.js';
 import { envoyerCarte, lecteurPret } from './paiement.js';
+import { rendreBande } from './bande.js';
 
 let magasin = null;
 const $ = (id) => document.getElementById(id);
@@ -161,6 +165,7 @@ export function rendreIssues(etat, precedent) {
   if (entre('accepte')) rendreAccepte(etat);
   if (entre('refuse')) rendreRefuse(etat);
   if (entre('identification')) rendreIdentification(etat);
+  rendreBande(etat);
 }
 
 export function initIssues(m) {

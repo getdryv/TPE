@@ -1,0 +1,45 @@
+/* ─── Caisse : paiement en chèques (cheques.js) ───────────────────────────────
+   Tokens de SPEC-UX § 6 : texte #1a1f36, sous-lignes #4a5468 (jamais plus
+   pâle, jamais d'opacité sur du texte), bordures de champ #8792a2, sélection
+   bordure 2 px #0570de sur #f2f7fe avec texte #0453b0. Le tableau ne montre
+   que l'échéancier renvoyé par le CRM. */
+
+.zone-cheques { display: flex; flex-direction: column; gap: 12px; }
+.sousligne { margin: 0; font-size: 14px; color: var(--secondaire); font-weight: 400; }
+.gras.sousligne, .sousligne.gras { font-weight: 600; }
+
+/* Nombre de chèques : une rangée de 1 à 3 boutons de 64 px. */
+.nb { display: grid; gap: 8px; }
+.nb-choix {
+  min-height: 64px; padding: 4px; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 2px; font-size: 16px;
+}
+.nb-choix small { font-size: 14px; font-weight: 600; }
+
+/* 1er chèque : la date retenue, « Changer », puis les pastilles de jours. */
+.ech-tete { display: flex; flex-wrap: wrap; align-items: center; gap: 0 10px; font-size: 16px; font-weight: 600; }
+.ech-tete .lien-btn { min-height: 44px; font-size: 15px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.jours { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
+.jours .sel { min-height: 48px; font-size: 15px; padding: 0 4px; }
+
+/* Échéancier : versement, date de remise, montant. */
+table.ech { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+.ech td { padding: 10px 0; border-bottom: 1px solid var(--filet); vertical-align: top; }
+.ech td + td { padding-left: 10px; }
+.ech tr:last-child td { border-bottom: 0; }
+.ech td:last-child { text-align: right; font-weight: 700; white-space: nowrap; }
+.ech .lien-btn { min-height: 32px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.mt-ch { display: inline-flex; align-items: center; gap: 6px; }
+.in-cheque {
+  width: 104px; height: 44px; border: 1px solid var(--bordure-champ); border-radius: 10px; padding: 0 10px;
+  font: inherit; font-size: 16px; font-weight: 700; text-align: right; color: var(--texte); background: #fff;
+}
+.in-cheque:focus, .in-date:focus { outline: none; border-color: var(--primaire); box-shadow: inset 0 0 0 1px var(--primaire); }
+.in-date {
+  height: 40px; max-width: 170px; margin-top: 4px; border: 1px solid var(--bordure-champ); border-radius: 10px;
+  padding: 0 8px; font: inherit; font-size: 15px; color: var(--texte); background: #fff;
+}
+
+/* Le seul bouton plein de l'écran porte l'attestation : il peut passer sur deux lignes. */
+.panier-action .btnp { line-height: 1.25; padding-top: 8px; padding-bottom: 8px; }
+.ech td:first-child { white-space: nowrap; }

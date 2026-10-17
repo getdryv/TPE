@@ -10,7 +10,8 @@
 // modifier le prix débité.
 //
 // Rien n'est enregistré dans le CRM tant que l'encaissement n'est pas complet :
-// la déclaration part du serveur, après capture.
+// la déclaration part du serveur, après capture. Ce qui se règle sans le
+// lecteur (espèces, chèques) vit dans sans-carte.js.
 
 import * as api from './api.js';
 import { el, remplir, nomComplet } from './format.js';
@@ -173,7 +174,7 @@ export async function suivrePaiement(pi, lecteur, estAnnule = () => false) {
 
 // ─── Encaissement catalogue ──────────────────────────────────────────────────
 
-const devisExpire = (r) => r.status === 410 && Boolean(r.data && r.data.code === 'devis_expire');
+export const devisExpire = (r) => r.status === 410 && Boolean(r.data && r.data.code === 'devis_expire');
 
 /**
  * Devis périmé (panier resté ouvert au-delà de sa validité) : on redemande le
@@ -181,9 +182,10 @@ const devisExpire = (r) => r.status === 410 && Boolean(r.data && r.data.code ===
  * bougé entre-temps, on s'arrête (rend `null`, erreur affichée) : le bouton
  * affichait l'ancien montant, et on n'encaisse que ce qu'on a montré.
  *
- * @param {(devis) => number} montantDe  la part qui compte (carte, ou total en espèces)
+ * @param {(devis) => number|string} montantDe  ce qui a été montré (part carte, total,
+ *   ou total + échéancier pour les chèques), comparé à `montantAffiche`
  */
-async function devisRenouvele(montantDe, montantAffiche) {
+export async function devisRenouvele(montantDe, montantAffiche, messageEcart = null) {
   const ok = await redemanderDevis();
   const etat = magasin.lire();
   if (!ok || !devisAJour(etat)) {
@@ -191,13 +193,13 @@ async function devisRenouvele(montantDe, montantAffiche) {
     return null;
   }
   if (montantDe(etat.devis) !== montantAffiche) {
-    magasin.appliquer(paiementErreur, 'Le prix a changé depuis l\'affichage : vérifiez le nouveau montant avant d\'encaisser.');
+    magasin.appliquer(paiementErreur, messageEcart || 'Le prix a changé depuis l\'affichage : vérifiez le nouveau montant avant d\'encaisser.');
     return null;
   }
   return etat.jetonDevis;
 }
 
-function resultat(etat, extra) {
+export function resultat(etat, extra) {
   const e = etat.eleve.eleve;
   return { devis: etat.devis, eleve: nomComplet(e.prenom, e.nom), ...extra };
 }
@@ -271,31 +273,6 @@ export async function annulerPaiement() {
   // Sans effet visible si la route échoue : l'affichage du lecteur retombera
   // seul, et le suivi s'arrête de toute façon.
   await api.annuler(suivi.pi, suivi.lecteur);
-}
-
-/** Espèces seules : aucun lecteur, la déclaration part tout de suite. */
-export async function encaisserEspeces() {
-  const etat = magasin.lire();
-  if (!devisAJour(etat) || etat.paiement || etat.moyen !== 'especes') return;
-  const montantAffiche = etat.devis.totalCents;
-  magasin.appliquer(paiementEtape, 'especes');
-  let r = await api.especes(etat.jetonDevis);
-  if (devisExpire(r)) {
-    const jeton = await devisRenouvele((d) => d.totalCents, montantAffiche);
-    if (!jeton) return;
-    r = await api.especes(jeton);
-  }
-  if (r.status === 401) return magasin.appliquer(identificationRequise, (r.data && r.data.code) || 'jeton_expire', r.message);
-  const declaration = r.data && r.data.declaration;
-  if (r.ok && declaration && (declaration.statut === 'enregistre' || declaration.statut === 'deja')) {
-    return magasin.appliquer(paiementAccepte, resultat(magasin.lire(), { declaration }));
-  }
-  // Ici, « en attente » est une ERREUR : sans carte, rien ne garde la trace de
-  // l'encaissement ailleurs que dans le CRM.
-  const cause = r.indisponible || (declaration && declaration.statut === 'en_attente')
-    ? 'le CRM ne répond pas'
-    : ((declaration && declaration.message) || r.message || 'refus du CRM');
-  magasin.appliquer(paiementErreur, `Rien n'est enregistré (${cause}). Réessayez dans un instant, ou rendez les espèces.`);
 }
 
 export function initPaiement(m, options = {}) {

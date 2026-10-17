@@ -8,6 +8,7 @@
   <!-- Chemins absolus : la page est servie sous /<slug>. La caisse ne parle
        jamais au lecteur : c'est le serveur qui demande à Stripe de le piloter. -->
   <link rel="stylesheet" href="/caisse.css" />
+  <link rel="stylesheet" href="/cheques.css" />
   <script type="module" src="/js/main.js"></script>
 </head>
 <body>
@@ -25,6 +26,9 @@
     <b>Le CRM ne répond pas.</b> Le catalogue est indisponible : seul le montant libre reste possible.
     Le paiement sera rattaché à la fiche de l'élève dès que le CRM reviendra.
   </div>
+
+  <!-- Bande verte : le dernier encaissement, jusqu'au suivant (bande.js). -->
+  <div id="bandeEncaisse" class="hote-bande" hidden></div>
 
   <main>
     <!-- Chargement -->
@@ -66,7 +70,7 @@
       <aside id="panier" class="panier" aria-label="À encaisser"></aside>
     </section>
 
-    <!-- 7 · Paiement accepté -->
+    <!-- 7 · Paiement accepté, cas à surveiller (encaissement incomplet, refus du CRM) -->
     <section data-ecran="accepte" class="ecran-issue" hidden>
       <div id="ecranAccepte" class="colonne-issue"></div>
     </section>

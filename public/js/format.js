@@ -77,6 +77,46 @@ export function dateCourte(iso) {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
 }
 
+// ─── Dates de remise (« AAAA-MM-JJ », jamais une Date locale) ────────────────
+//
+// Les dates des chèques circulent en chaînes, comme dans le devis : on les lit
+// en UTC pour qu'aucun fuseau ne décale le jour. Pur affichage : aucune règle
+// de jour ouvré ici, le CRM les a déjà appliquées.
+
+const JOURS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+const MOIS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+function jourUtc(iso) {
+  const m = typeof iso === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso) : null;
+  return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))) : null;
+}
+
+/** « 2026-10-19 » → « lun. 19 oct. » ; chaîne vide si illisible. */
+export function jourCourt(iso) {
+  const d = jourUtc(iso);
+  return d ? `${JOURS[d.getUTCDay()]}${ESPACE}${d.getUTCDate()}${ESPACE}${MOIS[d.getUTCMonth()]}` : '';
+}
+
+/** « 2026-10-19 » → « lun. 19 » (pastilles de jours). */
+export function jourEtQuantieme(iso) {
+  const d = jourUtc(iso);
+  return d ? `${JOURS[d.getUTCDay()]}${ESPACE}${d.getUTCDate()}` : '';
+}
+
+/** Le jour calendaire suivant, en « AAAA-MM-JJ ». */
+export function lendemain(iso) {
+  const d = jourUtc(iso);
+  if (!d) return '';
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Aujourd'hui à Paris, en « AAAA-MM-JJ » (pour dire « demain », rien de plus). */
+export function aujourdhuiParis(maintenant = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(maintenant);
+}
+
 /** « Lina » + « BENALI » → « Lina BENALI », sans espaces parasites. */
 export function nomComplet(prenom, nom) {
   return [prenom, nom].map((s) => String(s ?? '').trim()).filter(Boolean).join(' ');
