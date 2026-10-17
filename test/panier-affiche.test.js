@@ -132,9 +132,9 @@ test('changer de formule sous Chèques redessine les prix sous « N chèques »'
   s = E.choisirMoyen(s, 'cheques');
   const zone = (st) => A.cleZoneCheques(st, { proposes: E.chequesProposes(st), nombre: E.nombreCheques(st), ech: null, verrou: false, ui: {} });
   const avant = zone(s);
-  assert.deepEqual(A.sousNombres(s, 3).map((t) => t.replace(/\s/g, ' ')), ['999 €', '1 049 €', '1 049 €']);
+  assert.deepEqual(A.sousNombres(s, 3).map((t) => t.replace(/\s/g, ' ')), ['Total 999 €', 'Total 1 049 €', 'Total 1 049 €']);
   s = E.choisirFormule(s, 'forfait', 'a30');
   assert.equal(E.nombreCheques(s), null);
-  assert.deepEqual(A.sousNombres(s, 3).map((t) => t.replace(/\s/g, ' ')), ['1 499 €', '1 599 €', '1 599 €']);
+  assert.deepEqual(A.sousNombres(s, 3).map((t) => t.replace(/\s/g, ' ')), ['Total 1 499 €', 'Total 1 599 €', 'Total 1 599 €']);
   assert.notEqual(zone(s), avant, 'la zone doit être reconstruite : ses prix ont changé');
 });

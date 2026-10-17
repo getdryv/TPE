@@ -55,7 +55,8 @@ export function sousNombres(etat, proposes) {
   const sous = [];
   for (let k = 1; k <= proposes; k += 1) {
     const prix = esp ? null : prixPourNombre(etat.eleve, etat.produit, k);
-    sous.push(esp ? `paiement en ${k + 1} fois` : (prix !== null ? eurosCourts(prix) : (k === 1 ? 'prix comptant' : `prix en ${k} fois`)));
+    // « Total » : le montant est celui de TOUS les chèques, jamais d'un seul (retour du gérant, 17/10).
+    sous.push(esp ? `paiement en ${k + 1} fois` : (prix !== null ? `Total ${eurosCourts(prix)}` : (k === 1 ? 'prix comptant' : `prix en ${k} fois`)));
   }
   return sous;
 }
