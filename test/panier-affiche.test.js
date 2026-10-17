@@ -115,3 +115,26 @@ test('A2 : l’erreur de montant va sous le premier chèque saisi ; les autres r
   assert.equal(A.chequeFautif('avances', ['2000']), null);
   assert.equal(A.chequeFautif(null, undefined), null);
 });
+
+// Bug de production du 17/10 : moyen Chèques choisi, aucun nombre, puis une
+// autre formule (20 h → 30 h en promo) : le total suivait, les prix sous
+// « N chèques » restaient ceux de la formule d'avant.
+test('changer de formule sous Chèques redessine les prix sous « N chèques »', () => {
+  const eleve = {
+    ...ELEVE,
+    cascade: { forfaits: [
+      { formuleId: 'a20', nom: 'Auto 20 h', prixCents: 99900, promo: null, cheques: { max: 3, prixPlusieursFoisCents: 104900 } },
+      { formuleId: 'a30', nom: 'Auto 30 h', prixCents: 154900, promo: { prixRemiseCents: 149900, remiseCents: 5000 }, cheques: { max: 3, prixPlusieursFoisCents: 159900 } },
+    ], indices: {} },
+  };
+  let s = E.eleveCharge(E.creerEtat(), eleve);
+  s = E.choisirFormule(s, 'forfait', 'a20');
+  s = E.choisirMoyen(s, 'cheques');
+  const zone = (st) => A.cleZoneCheques(st, { proposes: E.chequesProposes(st), nombre: E.nombreCheques(st), ech: null, verrou: false, ui: {} });
+  const avant = zone(s);
+  assert.deepEqual(A.sousNombres(s, 3).map((t) => t.replace(/\s/g, ' ')), ['999 €', '1 049 €', '1 049 €']);
+  s = E.choisirFormule(s, 'forfait', 'a30');
+  assert.equal(E.nombreCheques(s), null);
+  assert.deepEqual(A.sousNombres(s, 3).map((t) => t.replace(/\s/g, ' ')), ['1 499 €', '1 599 €', '1 599 €']);
+  assert.notEqual(zone(s), avant, 'la zone doit être reconstruite : ses prix ont changé');
+});

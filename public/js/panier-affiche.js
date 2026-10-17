@@ -13,7 +13,7 @@
 
 import { devisAJour, nombreCheques } from './etat.js';
 import { avecCheques, avecEspeces } from './etat-cheques.js';
-import { lireMontant } from './format.js';
+import { lireMontant, eurosCourts } from './format.js';
 
 /** Les erreurs du CRM qui désignent un champ du panier : affichées sous ce champ. */
 export const CHAMPS_DU_PANIER = ['montants', 'avances', 'premierLe', 'especes'];
@@ -43,6 +43,31 @@ export function prixPourNombre(eleve, produit, k) {
   if (k === 1) return prixComptantTuile(tuile);
   const plusieurs = tuile && tuile.cheques && tuile.cheques.prixPlusieursFoisCents;
   return Number.isInteger(plusieurs) ? plusieurs : null;
+}
+
+/**
+ * Le texte sous chaque bouton « N chèques », de 1 à `proposes` : le prix de
+ * CETTE formule (comptant pour 1, en plusieurs fois au-delà), ou le nombre de
+ * versements d'un « Espèces + chèques ».
+ */
+export function sousNombres(etat, proposes) {
+  const esp = etat.moyen === 'especes_cheques';
+  const sous = [];
+  for (let k = 1; k <= proposes; k += 1) {
+    const prix = esp ? null : prixPourNombre(etat.eleve, etat.produit, k);
+    sous.push(esp ? `paiement en ${k + 1} fois` : (prix !== null ? eurosCourts(prix) : (k === 1 ? 'prix comptant' : `prix en ${k} fois`)));
+  }
+  return sous;
+}
+
+/**
+ * Ce qui oblige à reconstruire la zone des chèques (tout sauf les montants
+ * tapés). Les prix sous les boutons en font partie : changer de formule sans
+ * toucher au moyen ni au nombre doit les redessiner.
+ */
+export function cleZoneCheques(etat, { proposes, nombre, ech, verrou, ui }) {
+  const versements = ech ? ech.versements.map((v) => [v.rang, v.nature, v.dueOn, v.prevuLe, v.avance, v.avancable, v.min, v.max, v.montantModifiable]) : null;
+  return JSON.stringify([etat.moyen, proposes, sousNombres(etat, proposes), nombre, verrou, ui, ech && ech.premier, versements]);
 }
 
 /** Ce qui fait le prix : tant que cette clé ne bouge pas, le total non plus. */

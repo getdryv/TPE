@@ -17,7 +17,7 @@ import {
   choisirNombreCheques, choisirPremierCheque, avancerCheque, saisirMontantCheque,
 } from './etat.js';
 import { avecCheques } from './etat-cheques.js';
-import { prixPourNombre, chequeFautif } from './panier-affiche.js';
+import { sousNombres, cleZoneCheques, chequeFautif } from './panier-affiche.js';
 
 const JOURS_MAX = 62; // garde-fou de la rangée de pastilles (le réglage d'agence va jusqu'à 30 jours ouvrés)
 
@@ -50,16 +50,14 @@ function rangeeNombre(etat, proposes, nombre, verrou) {
     return el('div', { class: 'encart encart-warn' },
       'Cette formule se règle en une seule fois : choisissez Chèques ou Espèces.');
   }
-  const boutons = [];
-  for (let k = 1; k <= proposes; k += 1) {
-    // Le prix sous le nombre : l'œil n'a pas à faire l'aller-retour vers le total.
-    const prix = esp ? null : prixPourNombre(etat.eleve, etat.produit, k);
-    const sous = esp ? `paiement en ${k + 1} fois` : (prix !== null ? eurosCourts(prix) : (k === 1 ? 'prix comptant' : `prix en ${k} fois`));
-    boutons.push(el('button', {
+  // Le prix sous le nombre : l'œil n'a pas à faire l'aller-retour vers le total.
+  const boutons = sousNombres(etat, proposes).map((sous, i) => {
+    const k = i + 1;
+    return el('button', {
       type: 'button', class: 'sel nb-choix', 'aria-pressed': String(nombre === k), disabled: verrou,
       onclick: () => agir(choisirNombreCheques, k),
-    }, k === 1 ? '1 chèque' : `${k} chèques`, el('small', {}, sous)));
-  }
+    }, k === 1 ? '1 chèque' : `${k} chèques`, el('small', {}, sous));
+  });
   return el('div', {},
     el('span', { class: 'etiq', id: 'nbChequesLib' }, 'Nombre de chèques'),
     el('div', { class: 'nb', role: 'group', 'aria-labelledby': 'nbChequesLib', style: `grid-template-columns:repeat(${proposes},minmax(0,1fr))` }, boutons),
@@ -178,12 +176,6 @@ function tableau(ech, nombre, verrou) {
 
 // ─── Rendu ───────────────────────────────────────────────────────────────────
 
-/** Ce qui oblige à reconstruire la zone (tout sauf les montants). */
-function cleStructure(etat, proposes, nombre, ech, verrou) {
-  const versements = ech ? ech.versements.map((v) => [v.rang, v.nature, v.dueOn, v.prevuLe, v.avance, v.avancable, v.min, v.max, v.montantModifiable]) : null;
-  return JSON.stringify([etat.moyen, proposes, nombre, verrou, ui, ech && ech.premier, versements]);
-}
-
 /** Met les montants à jour sans reconstruire : le champ en cours de frappe garde son texte et son focus. */
 function majMontants(etat, ech) {
   if (!ech) return;
@@ -254,7 +246,7 @@ export function rendreCheques(etat, erreur = null) {
   if (devisAJour(etat) && etat.devis.echeancier) memo.echeancier = etat.devis.echeancier;
   const ech = nombre ? memo.echeancier : null;
 
-  const cle = cleStructure(etat, proposes, nombre, ech, verrou);
+  const cle = cleZoneCheques(etat, { proposes, nombre, ech, verrou, ui });
   if (cle !== structure) {
     structure = cle;
     champs = [];
