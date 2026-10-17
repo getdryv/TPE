@@ -14,7 +14,8 @@ import { lireMontant } from './format.js';
 
 export const MOYENS_CHEQUES = ['cheques', 'especes_cheques'];
 export const MOYENS_MIXTES = ['mixte', 'especes_cheques'];
-const VERSEMENTS_PLAFOND = 3;
+// Borne de sûreté : le maximum réel vient de la formule et du plafond de l'agence (CRM).
+const VERSEMENTS_PLAFOND = 24;
 
 /** Aucun choix : c'est l'état après chaque changement de moyen. */
 export function chequesVides() {
@@ -112,7 +113,7 @@ export function demandeCheques(cheques, nombre) {
   const demande = { nombre };
   if (cheques.premierLe) demande.premierLe = cheques.premierLe;
 
-  const avances = cheques.avances.slice(0, nombre).map((a) => a || null);
+  const avances = Array.from({ length: nombre }, (_, i) => cheques.avances[i] || null);
   if (avances.some(Boolean)) demande.avances = avances;
 
   if (nombre > 1) {

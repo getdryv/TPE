@@ -30,10 +30,10 @@ function panier(formuleId = 'b30', moyen = 'cheques') {
   return m;
 }
 
-test('nombre maximal de versements : la tuile, bornée à 3 ; 1 sans donnée, prépa ou libre', () => {
+test('nombre maximal de versements : celui de la tuile (plus de borne à 3) ; 1 sans donnée, prépa ou libre', () => {
   assert.equal(C.versementsMaxProduit(ELEVE, { type: 'forfait', formuleId: 'b30' }), 3);
   assert.equal(C.versementsMaxProduit(ELEVE, { type: 'forfait', formuleId: 'ancien' }), 1);
-  assert.equal(C.versementsMaxProduit(ELEVE, { type: 'heures_supp', formuleId: 'h5' }), 3);
+  assert.equal(C.versementsMaxProduit(ELEVE, { type: 'heures_supp', formuleId: 'h5' }), 9);
   assert.equal(C.versementsMaxProduit(ELEVE, { type: 'prepa' }), 1);
   assert.equal(C.versementsMaxProduit(ELEVE, { type: 'libre', montantCents: 5000 }), 1);
 });
@@ -100,7 +100,8 @@ test('changer le nombre efface montants et avances, garde le 1er chèque', () =>
   const apres = C.avecNombre(avant, 2);
   assert.deepEqual(apres, { nombre: 2, premierLe: '2026-10-22', avances: [null, null, null], montants: ['', '', ''] });
   assert.equal(C.avecNombre(avant, 3), avant, 'même nombre : état inchangé');
-  assert.equal(C.avecNombre(avant, 4), avant, 'hors plafond : ignoré');
+  assert.equal(C.avecNombre(avant, 25), avant, 'hors borne de sûreté : ignoré');
+  assert.equal(C.avecNombre(avant, 4).nombre, 4, 'conduite accompagnée : 4 fois');
 });
 
 test('changer le 1er chèque fait tomber les avances ; les transitions ne modifient jamais l\'ancien état', () => {
@@ -149,4 +150,13 @@ test('formule à un seul versement : un chèque, sans geste ; pas de chèque apr
   m.appliquer(E.saisirEspeces, '300');
   assert.equal(E.chequesProposes(m.lire()), 0);
   assert.deepEqual(E.requeteDevis(m.lire()), { manque: 'nombre' });
+});
+
+test('4 chèques : les avances et les montants partent pour les 4 (conduite accompagnée)', () => {
+  const ch = { ...C.chequesVides(), nombre: 4 };
+  const avec = C.avecMontant(C.avecAvance(ch, 3, '2027-01-10'), 2, '300');
+  const { demande } = C.demandeCheques(avec, 4);
+  assert.equal(demande.avances.length, 4);
+  assert.equal(demande.avances[3], '2027-01-10');
+  assert.deepEqual(demande.montantsCents, [null, null, 30000]);
 });

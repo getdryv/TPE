@@ -71,12 +71,13 @@ test('chèques : part carte ou espèces interdite', () => {
 test('échéancier vide, absent, ou trop long : refusé', () => {
   assert.equal(devisCoherent({ ...copie(CHEQUES), ech: [] }), false);
   assert.equal(devisCoherent({ ...copie(CHEQUES), ech: undefined }), false);
-  const quatre = copie(CHEQUES);
-  quatre.ech = [['2026-10-19', 44000, '2026-10-19'], ['2026-11-19', 44000, '2026-11-19'], ['2026-12-21', 44000, '2026-12-21'], ['2027-01-19', 44000, '2027-01-19']];
-  assert.equal(devisCoherent(quatre), false);
-  const troisApresEspeces = copie(ESPECES_CHEQUES);
-  troisApresEspeces.ech = [['2026-11-17', 50000, '2026-11-17'], ['2026-12-17', 48000, '2026-12-17'], ['2027-01-18', 48000, '2027-01-18']];
-  assert.equal(devisCoherent(troisApresEspeces), false);
+  // Au-delà de la borne de sûreté (24 chèques, 23 après des espèces) : refusé. Le vrai maximum est signé par le CRM.
+  const trop = copie(CHEQUES);
+  trop.ech = Array.from({ length: 25 }, () => ['2026-10-19', 100, '2026-10-19']);
+  assert.equal(devisCoherent(trop), false);
+  const tropApresEspeces = copie(ESPECES_CHEQUES);
+  tropApresEspeces.ech = Array.from({ length: 24 }, () => ['2026-11-17', 100, '2026-11-17']);
+  assert.equal(devisCoherent(tropApresEspeces), false);
 });
 
 test('échéancier : somme, minimum, ordre, avance et dates', () => {
