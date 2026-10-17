@@ -56,10 +56,10 @@ function rangeeNombre(etat, proposes, nombre, verrou) {
     return el('button', {
       type: 'button', class: 'sel nb-choix', 'aria-pressed': String(nombre === k), disabled: verrou,
       onclick: () => agir(choisirNombreCheques, k),
-    }, k === 1 ? '1 chèque' : `${k} chèques`, el('small', {}, sous));
+    }, `En ${k + (esp ? 1 : 0)} fois`, el('small', {}, sous));
   });
   return el('div', {},
-    el('span', { class: 'etiq', id: 'nbChequesLib' }, 'Nombre de chèques'),
+    el('span', { class: 'etiq', id: 'nbChequesLib' }, 'Payer en combien de fois ?'),
     el('div', { class: 'nb', role: 'group', 'aria-labelledby': 'nbChequesLib', style: `grid-template-columns:repeat(${proposes},minmax(0,1fr))` }, boutons),
     esp ? el('p', { class: 'sousligne', style: 'margin-top:8px' }, 'Les espèces comptent comme 1er versement : 3 versements au plus.') : null);
 }

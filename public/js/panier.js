@@ -41,7 +41,7 @@ const MANQUE = {
   montant: 'Saisissez le montant',
   moyen: 'Choisissez le moyen de paiement',
   especes: 'Saisissez le montant reçu en espèces',
-  nombre: 'Choisissez le nombre de chèques',
+  nombre: 'Choisissez en combien de fois',
   montants: 'Corrigez les montants des chèques',
 };
 
