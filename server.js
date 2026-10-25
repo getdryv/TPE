@@ -48,6 +48,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use(require('./routes/agence'));
 app.use(require('./routes/eleves'));
 app.use(require('./routes/caisse'));
+app.use(require('./routes/bordereau'));
 app.use(require('./routes/paiement'));
 app.use(require('./routes/webhook'));
 

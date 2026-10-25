@@ -1,0 +1,47 @@
+/* ─── Bordereau d'espèces (bordereau.js) ──────────────────────────────────────
+   Noir et blanc, sans signature. Invisible à l'écran ; à l'impression, seul
+   lui sort, au format de l'agence (A5 par défaut, A4 : la règle @page est
+   posée par bordereau.js). */
+
+.impression { display: none; }
+
+.bordereau {
+  box-sizing: border-box; width: 148mm; min-height: 210mm; padding: 9mm 9.5mm 7.5mm; background: #fff; color: #000;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; font-size: 13px;
+  display: flex; flex-direction: column; gap: 16px; overflow-wrap: anywhere;
+}
+.bordereau.format-A4 { width: 210mm; min-height: 297mm; padding: 14mm 15mm 12mm; font-size: 15px; gap: 20px; }
+.b-haut { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; border-bottom: 2px solid #000; padding-bottom: 12px; }
+.b-agence { font-size: 1.23em; font-weight: 700; }
+.b-adresse { font-size: .92em; margin-top: 3px; line-height: 1.4; }
+.b-numero { text-align: right; font-size: .92em; }
+.b-numero b { display: block; font-size: 1.3em; margin-top: 2px; letter-spacing: .02em; }
+.b-titre { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.b-titre h1 { margin: 0; font-size: 1.54em; letter-spacing: .04em; }
+.b-duplicata { border: 2px solid #000; padding: 2px 10px; font-weight: 800; letter-spacing: .12em; }
+.b-infos { margin: 0; display: grid; grid-template-columns: 110px 1fr; gap: 5px 12px; }
+.b-infos dt { margin: 0; }
+.b-infos dd { margin: 0; font-weight: 700; }
+.b-boite { border: 2px solid #000; border-radius: 6px; padding: 12px 16px; display: flex; flex-direction: column; gap: 4px; }
+.b-boite-l { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.b-boite-l span:first-child { font-size: 1.08em; font-weight: 700; }
+.b-boite-l span:last-child { font-size: 2.15em; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.b-lettres { font-style: italic; }
+.b-coupures { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.b-coupures th { text-align: left; font-size: .92em; border-bottom: 1.5px solid #000; padding: 5px 0; }
+.b-coupures td { padding: 6px 0; border-bottom: 1px solid #999; }
+.b-coupures th:nth-child(2), .b-coupures td:nth-child(2) { text-align: center; }
+.b-coupures th:last-child, .b-coupures td:last-child { text-align: right; }
+.b-coupures tfoot td { font-weight: 800; border-bottom: 0; border-top: 1.5px solid #000; font-size: 1.08em; }
+.b-sans-detail { margin: 0; font-style: italic; }
+.b-autre { border: 1px solid #000; border-radius: 6px; padding: 9px 12px; font-size: .96em; line-height: 1.45; }
+.b-autre b { display: block; margin-bottom: 2px; }
+.bordereau .bloc { display: block; }
+.b-pied { margin-top: auto; font-size: .88em; text-align: center; border-top: 1px solid #000; padding-top: 9px; line-height: 1.45; }
+
+@media print {
+  body { background: #fff !important; min-height: 0; }
+  body > *:not(#impressionBordereau) { display: none !important; }
+  #impressionBordereau { display: block; }
+  .bordereau { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

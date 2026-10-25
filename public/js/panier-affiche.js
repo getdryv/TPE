@@ -123,6 +123,13 @@ export function prixCatalogue(etat) {
     const cents = lireMontant(p.montantSaisie);
     return cents ? { libelle: 'Montant libre', totalCents: cents, versements: 1 } : null;
   }
+  if (p.type === 'reprise_cheque') {
+    // Le montant des chèques cochés, tel que le CRM l'a lu (le devis le recalcule).
+    const cheques = ((etat.eleve && etat.eleve.reprises && etat.eleve.reprises.cheques) || []).filter((c) => p.chequeIds.includes(c.id));
+    if (!cheques.length) return null;
+    const libelle = cheques.length === 1 ? `Reprise du chèque ${cheques[0].numero ? `n° ${cheques[0].numero}` : 'sans numéro'}` : `Reprise de ${cheques.length} chèques`;
+    return { libelle, totalCents: cheques.reduce((s, c) => s + c.montantCents, 0), versements: 1 };
+  }
   if (etat.accompagnement) return null; // la ligne d'accompagnement n'a de prix que dans le devis
   const tuile = tuileDuProduit(etat.eleve, p);
   if (!tuile) return null;

@@ -8,19 +8,23 @@
 //
 // Les erreurs du CRM (rien à régler, espèces ≥ total, montants des chèques…)
 // sont affichées telles quelles : c'est lui qui connaît la règle, pas la page.
-// Aucun moyen n'est présélectionné ; le rendu des chèques vit dans cheques.js.
+// Aucun moyen n'est présélectionné ; le rendu des chèques vit dans cheques.js,
+// le compteur des espèces dans compteur-especes.js : le bouton reste bloqué
+// tant que le compté n'égale pas PILE la part espèces.
 //
 // Le squelette est construit une fois ; chaque rendu ne met à jour que des
-// textes et des états. Reconstruire le champ « Reçu en espèces » à chaque
-// frappe ferait perdre le focus au milieu de la saisie.
+// textes et des états (aucun champ recréé pendant une frappe).
 
 import * as api from './api.js';
 import { el, remplir, eurosCourts } from './format.js';
 import {
-  requeteDevis, devisAJour, choisirMoyen, saisirEspeces, devisRecu, devisRefuse,
-  basculerSecours, identificationRequise, nombreCheques, chequesProposes,
+  requeteDevis, devisAJour, choisirMoyen, devisRecu, devisRefuse,
+  basculerSecours, identificationRequise, nombreCheques, chequesProposes, MOYENS_REPRISE,
 } from './etat.js';
-import { avecCheques, avecEspeces } from './etat-cheques.js';
+import { analyseEspeces, compteVisible, comptageAccepte } from './etat-especes.js';
+import { construireCompteur, rendreCompteur } from './compteur-especes.js';
+import { noteReprise } from './reprise.js';
+import { avecCheques } from './etat-cheques.js';
 import { envoyerCarte, annulerPaiement, lecteurPret, raisonLecteurActuel } from './paiement.js';
 import { encaisserSansCarte, initSansCarte, MOYENS_SANS_CARTE } from './sans-carte.js';
 import { initCheques, rendreCheques } from './cheques.js';
@@ -43,7 +47,11 @@ const MANQUE = {
   especes: 'Saisissez le montant reçu en espèces',
   nombre: 'Choisissez en combien de fois',
   montants: 'Corrigez les montants des chèques',
+  cheque: 'Cochez le chèque repris',
 };
+
+// Le comptage pas encore juste : le bouton dit ce qui manque (maquettes 01 à 04).
+const COMPTAGE = { vide: 'Comptez les espèces', manque: 'Complétez le comptage', trop: 'Rendez d\'abord le trop-perçu', attente: 'Calcul du prix…' };
 
 const ETAPES = {
   envoi: 'Envoi au lecteur…',
@@ -56,7 +64,6 @@ let magasin = null;
 let n = {};                 // nœuds du squelette
 let minuteur = null;
 let demande = { version: -1, controleur: null };
-let moyenAffiche = null;    // pour donner le focus au champ espèces quand on choisit un mixte
 let dernier = null;         // dernier devis reçu pour ce panier (panier-affiche.js)
 
 // ─── Devis ───────────────────────────────────────────────────────────────────
@@ -115,18 +122,7 @@ function construire() {
     onclick: () => magasin.appliquer(choisirMoyen, code),
   }, libelle));
 
-  n.especes = el('input', {
-    id: 'especesRecues', class: 'in-especes', type: 'text', name: 'champM', inputmode: 'decimal',
-    autocomplete: 'pas-de-remplissage-auto', placeholder: 'ex. 300,00',
-  });
-  n.especes.addEventListener('input', () => magasin.appliquer(saisirEspeces, n.especes.value));
-  n.reste = el('p', { class: 'reste', 'aria-live': 'polite' });
-  n.erreurEspeces = el('p', { class: 'reste trop', role: 'alert' });
-  n.boiteEspeces = el('div', { class: 'boite-especes' },
-    el('label', { for: 'especesRecues' }, 'Reçu en espèces'),
-    el('div', { class: 'champ-especes' }, n.especes, el('span', { class: 'euro-especes' }, '€')),
-    n.erreurEspeces, n.reste);
-
+  n.compteur = construireCompteur(magasin);
   n.zoneCheques = el('div', { class: 'zone-cheques' });
   n.erreur = el('div', { class: 'encart encart-erreur', role: 'alert' });
   n.statut = el('div', { class: 'statut', role: 'status' });
@@ -150,7 +146,7 @@ function construire() {
       el('div', {},
         el('span', { class: 'etiq', id: 'moyensLib' }, 'Moyen de paiement'),
         el('div', { class: 'moyens', role: 'group', 'aria-labelledby': 'moyensLib' }, n.moyens)),
-      n.boiteEspeces, n.zoneCheques),
+      n.compteur, n.zoneCheques),
     n.action);
   initCheques(magasin, n.zoneCheques);
   mesurer();
@@ -182,9 +178,16 @@ function mesurer() {
 // 3 chèques · Encaisser 1 760 € ») : pas de case à cocher ni de confirmation.
 function agir() {
   const etat = magasin.lire();
-  if (!devisAJour(etat) || etat.paiement) return;
+  if (!devisAJour(etat) || etat.paiement || !comptageAccepte(etat)) return;
   if (MOYENS_SANS_CARTE.includes(etat.moyen)) return encaisserSansCarte();
   return envoyerCarte();
+}
+
+/** Entrée dans la feuille de comptage : encaisse si le bouton est actif (et le dit). */
+export function validerSiPret() {
+  if (!n.principal || n.principal.disabled) return false;
+  agir();
+  return true;
 }
 
 function secondaire() {
@@ -204,6 +207,7 @@ function lignesDevis(etat, affiche, catalogue) {
 }
 
 function texteNote(etat) {
+  if (etat.onglet === 'reprise') return noteReprise(etat);
   if (etat.onglet === 'prepa') return 'Payer ici marque la prépa comme réglée : les relances par e-mail s\'arrêtent, comme avec le lien de paiement.';
   if (etat.onglet === 'heures_supp' && etat.accompagnement) {
     return 'L\'accompagnement payé ici vaut pour le passage en cours : les relances s\'arrêtent, comme avec la prépa.';
@@ -212,7 +216,8 @@ function texteNote(etat) {
 }
 
 /** « Prix en 3 fois · 70 € de plus qu'en 1 fois », ou « Prix comptant » : lu dans le devis affiché. */
-function texteSurcout(devis, catalogue) {
+function texteSurcout(devis, catalogue, etat) {
+  if (etat && etat.onglet === 'reprise') return ''; // une reprise n'a pas de prix « comptant » : c'est le montant du chèque
   if (!devis) return catalogue ? (catalogue.versements > 1 ? `Prix en ${catalogue.versements} fois` : 'Prix comptant') : '';
   const ech = devis.echeancier;
   if (!ech || ech.prix !== 'plusieurs_fois') return 'Prix comptant';
@@ -227,7 +232,7 @@ function libelleAction(etat) {
     const nb = nombreCheques(etat);
     return `${nb === 1 ? 'J\'ai le chèque' : `J'ai les ${nb} chèques`} · Encaisser ${eurosCourts(d.totalCents)}`;
   }
-  if (etat.moyen === 'especes') return `Encaisser ${eurosCourts(d.totalCents)} en espèces`;
+  if (etat.moyen === 'especes') return [`Encaisser ${eurosCourts(d.totalCents)} en espèces `, el('kbd', {}, 'Entrée')];
   return `Envoyer ${eurosCourts(d.carteCents)} au lecteur`;
 }
 
@@ -246,7 +251,8 @@ function rendreBoutons(etat, aJour) {
     n.principal.disabled = true;
     // Formule en une seule fois après des espèces : aucun nombre ne convient.
     const impossible = req.manque === 'nombre' && chequesProposes(etat) < 1;
-    n.principal.textContent = impossible ? 'Choisissez un autre moyen de paiement' : (MANQUE[req.manque] || 'Touchez une formule');
+    const comptage = req.manque === 'especes' && compteVisible(etat) ? COMPTAGE.vide : null;
+    n.principal.textContent = impossible ? 'Choisissez un autre moyen de paiement' : (comptage || MANQUE[req.manque] || 'Touchez une formule');
     return;
   }
   if (!aJour) {
@@ -254,7 +260,12 @@ function rendreBoutons(etat, aJour) {
     n.principal.textContent = etat.devisErreur ? libelleCorrection(etat.moyen, etat.devisChamp) : 'Calcul du prix…';
     return;
   }
-  n.principal.textContent = libelleAction(etat);
+  if (compteVisible(etat) && !comptageAccepte(etat)) {
+    n.principal.disabled = true;
+    n.principal.textContent = COMPTAGE[analyseEspeces(etat).statut] || COMPTAGE.vide;
+    return;
+  }
+  remplir(n.principal, libelleAction(etat));
   if (MOYENS_SANS_CARTE.includes(etat.moyen)) {
     n.principal.disabled = false;
     return;
@@ -270,10 +281,7 @@ function rendreErreurs(etat) {
   const message = etat.erreur || (sousChamp ? null : etat.devisErreur);
   n.erreur.hidden = !message;
   n.erreur.textContent = message || '';
-  const especes = sousChamp === 'especes' ? etat.devisErreur : '';
-  n.erreurEspeces.hidden = !especes;
-  n.erreurEspeces.textContent = especes;
-  n.especes.setAttribute('aria-invalid', String(Boolean(especes)));
+  n.erreurEspeces = sousChamp === 'especes' ? etat.devisErreur : '';
   return sousChamp && sousChamp !== 'especes' ? etat.devisErreur : null;
 }
 
@@ -290,26 +298,23 @@ export function rendrePanier(etat) {
   remplir(n.lignes, lignesDevis(etat, affiche, catalogue));
   n.total.textContent = Number.isInteger(totalCents) ? eurosCourts(totalCents) : '—';
   n.totalBarre.textContent = n.total.textContent;
-  n.surcout.textContent = texteSurcout(affiche.devis, catalogue);
+  n.surcout.textContent = texteSurcout(affiche.devis, catalogue, etat);
   n.note.textContent = texteNote(etat);
   n.note.hidden = !n.note.textContent;
 
   const verrou = Boolean(etat.paiement);
+  // Reprise de chèque : Carte ou Espèces seulement, sur une rangée (maquette « Reprise de chèque »).
+  const reprise = etat.onglet === 'reprise';
   n.moyens.forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.moyen === etat.moyen));
     b.disabled = verrou;
+    b.hidden = reprise && !MOYENS_REPRISE.includes(b.dataset.moyen);
+    b.classList.toggle('large', reprise || ['mixte', 'especes_cheques'].includes(b.dataset.moyen));
   });
-  const mixte = avecEspeces(etat.moyen);
-  n.boiteEspeces.hidden = !mixte;
-  if (n.especes.value !== etat.especesSaisie) n.especes.value = etat.especesSaisie;
-  n.especes.disabled = verrou;
   const reste = resteAffiche(dernier, etat, affiche);
-  n.reste.textContent = reste === null ? '' : texteReste(etat.moyen, eurosCourts(reste));
-  n.reste.hidden = reste === null;
-  // Un paiement mixte vient d'être choisi : le montant reçu se tape tout de suite.
-  if (mixte && !avecEspeces(moyenAffiche) && !verrou) setTimeout(() => n.especes.focus(), 0);
-  moyenAffiche = etat.moyen;
-  rendreCheques(etat, rendreErreurs(etat));
+  const chequesErreur = rendreErreurs(etat);
+  rendreCompteur(etat, { reste, texteReste: reste === null ? '' : texteReste(etat.moyen, eurosCourts(reste)), erreur: n.erreurEspeces });
+  rendreCheques(etat, chequesErreur);
 
   rendreBoutons(etat, aJour);
   planifierDevis(etat);

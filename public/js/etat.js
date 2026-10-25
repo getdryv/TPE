@@ -1,25 +1,23 @@
 // ─── L'état de la caisse et ses transitions, PUR ─────────────────────────────
 //
 // Aucun accès au DOM ni au réseau : chaque transition prend un état et rend un
-// NOUVEL état (l'ancien n'est jamais modifié). Les écrans ne font que dessiner
-// l'état ; les appels réseau vivent ailleurs et reviennent ici par une
-// transition. Tout ce qui décide de ce qui part au lecteur se teste sous node.
-//
-// Le principe qui commande tout : le prix vient du DEVIS du CRM. Le panier ne
-// connaît que « élève + produit + moyen (+ espèces) ». Toute modification de
-// ces éléments incrémente `version`, ce qui périme le devis en main ; une
-// réponse de devis arrivée pour une ancienne version est ignorée. On ne peut
-// donc jamais envoyer au lecteur le prix d'un panier qui n'est plus affiché.
-// Les choix d'un paiement en chèques vivent dans etat-cheques.js. AUCUN moyen
-// n'est présélectionné : sans moyen choisi, aucun devis ne part.
+// NOUVEL état. Le prix vient du DEVIS du CRM : le panier ne connaît que
+// « élève + produit + moyen (+ espèces) », et toute modification périme le
+// devis en main (etat-base.js) ; une réponse arrivée pour une ancienne version
+// est ignorée. Chèques : etat-cheques.js ; espèces comptées : etat-especes.js.
+// AUCUN moyen n'est présélectionné : sans moyen choisi, aucun devis ne part.
 
 import { lireMontant } from './format.js';
+import { perimer as panierModifie } from './etat-base.js';
+import { totalCompte, enSaisie } from './especes-compte.js';
 import {
   chequesVides, avecCheques, avecEspeces, versementsMaxProduit, nombreChequesProposes, nombreEffectif,
   demandeCheques, avecNombre, avecPremier, avecAvance, avecMontant,
 } from './etat-cheques.js';
 
-export const ONGLETS = ['forfait', 'heures_supp', 'prepa', 'libre'];
+export const ONGLETS = ['forfait', 'heures_supp', 'prepa', 'libre', 'reprise'];
+/** Une reprise de chèque se règle en espèces ou par carte (maquette « Reprise de chèque »). */
+export const MOYENS_REPRISE = ['carte', 'especes'];
 export const MOYENS = ['carte', 'especes', 'cheques', 'mixte', 'especes_cheques'];
 
 /** Le panier vide, sans élève. Mode et utilisateur sont conservés à part. */
@@ -30,7 +28,9 @@ function panierVide() {
     produit: null,        // voir `requeteDevis` pour les formes possibles
     accompagnement: false, // Heures supp : case « accompagnement à l'examen » cochée
     moyen: null,          // aucun par défaut
-    especesSaisie: '',    // texte tel que tapé ; converti à la demande
+    especesSaisie: '',    // part espèces d'un mixte, en texte (tirée du comptage) ; convertie à la demande
+    comptage: {},         // espèces comptées, { "<centimes>": nombre } (especes-compte.js)
+    retourPrestation: false, // « Revenir au choix de la prestation » : les onglets au lieu de la feuille
     cheques: chequesVides(), // nombre, 1er chèque, avances, montants saisis
     version: 0,
     devis: null,          // DevisLisible
@@ -91,6 +91,9 @@ export function requeteDevis(etat) {
     if (p.type === 'heures_supp' && etat.accompagnement) produit.accompagnement = true;
   } else if (p.type === 'prepa') {
     produit = p.accompagnementSeul ? { type: 'prepa', accompagnementSeul: true } : { type: 'prepa' };
+  } else if (p.type === 'reprise_cheque') {
+    if (!p.chequeIds.length) return { manque: 'cheque' };
+    produit = { type: 'reprise_cheque', chequeIds: p.chequeIds.slice() };
   } else if (p.type === 'libre') {
     // Sans motif (décision du 27/09/2026) : le montant, et le commentaire s'il y en a un.
     const montantCents = lireMontant(p.montantSaisie);
@@ -122,29 +125,16 @@ export function devisAJour(etat) {
   return Boolean(etat.devis && etat.jetonDevis && etat.devisVersion === etat.version);
 }
 
-/** Espèces à rendre si l'on abandonne : celles du devis, à défaut celles saisies. */
+/** Espèces à rendre si l'on abandonne : celles comptées, sinon celles du devis, à défaut celles saisies. */
 export function especesARendre(etat) {
+  const comptees = totalCompte(etat.comptage || {});
+  if (comptees > 0) return comptees;
   if (etat.moyen !== 'mixte') return 0;
   if (devisAJour(etat) && etat.devis.especesCents > 0) return etat.devis.especesCents;
   return especesCents(etat) || 0;
 }
 
 // ─── Transitions ─────────────────────────────────────────────────────────────
-
-/** Tout changement du panier périme le devis en main. */
-function panierModifie(etat, changements) {
-  return {
-    ...etat,
-    ...changements,
-    version: etat.version + 1,
-    devis: null,
-    jetonDevis: null,
-    devisVersion: -1,
-    devisErreur: null,
-    devisChamp: null,
-    erreur: null,
-  };
-}
 
 /**
  * Réponse de `GET /api/caisse/session` → écran de départ (§ 7). En secours, le
@@ -193,7 +183,31 @@ export function choisirOnglet(etat, onglet) {
   if (onglet === 'libre') {
     produit = { type: 'libre', montantSaisie: '', note: '' };
   }
-  return panierModifie(etat, { onglet, produit, accompagnement: false, cheques: chequesVides() });
+  const changements = { onglet, produit, accompagnement: false, cheques: chequesVides(), retourPrestation: false };
+  if (onglet === 'reprise') {
+    if (!chequesReprenables(etat).length) return etat;
+    changements.produit = { type: 'reprise_cheque', chequeIds: [] };
+    if (!MOYENS_REPRISE.includes(etat.moyen)) changements.moyen = null;
+  } else if (etat.onglet === 'reprise' && etat.moyen) {
+    changements.moyen = null;
+  }
+  return panierModifie(etat, changements);
+}
+
+/** Les chèques que l'élève peut reprendre (CRM à jour et migration passée), sinon []. */
+export function chequesReprenables(etat) {
+  const r = etat.eleve && etat.eleve.reprises;
+  return r && Array.isArray(r.cheques) ? r.cheques : [];
+}
+
+/** Onglet « Reprise de chèque » : coche ou décoche un chèque. */
+export function cocherChequeReprise(etat, id) {
+  const p = etat.produit;
+  if (!p || p.type !== 'reprise_cheque' || !chequesReprenables(etat).some((c) => c.id === id)) return etat;
+  const coches = p.chequeIds.includes(id) ? p.chequeIds.filter((x) => x !== id) : [...p.chequeIds, id];
+  // L'ordre de la liste fait foi : le devis et le reçu les citent dans cet ordre.
+  const ordre = chequesReprenables(etat).map((c) => c.id).filter((x) => coches.includes(x));
+  return panierModifie(etat, { produit: { type: 'reprise_cheque', chequeIds: ordre } });
 }
 
 /** Une tuile touchée : forfait ou pack d'heures. */
@@ -201,7 +215,7 @@ export function choisirFormule(etat, type, formuleId) {
   if (!formuleId || (type !== 'forfait' && type !== 'heures_supp')) return etat;
   const p = etat.produit;
   if (p && p.type === type && p.formuleId === formuleId) return etat;
-  return panierModifie(etat, { produit: { type, formuleId }, cheques: chequesVides() });
+  return panierModifie(etat, { produit: { type, formuleId }, cheques: chequesVides(), retourPrestation: false });
 }
 
 /**
@@ -229,11 +243,18 @@ export function saisirLibre(etat, champs) {
   return panierModifie(etat, { produit: { ...p, ...champs } });
 }
 
-/** Changer de moyen efface les choix de chèques ; les espèces tapées passent d'un mixte à l'autre. */
+/**
+ * Changer de moyen efface les choix de chèques. Les espèces COMPTÉES restent
+ * (l'argent est dans la main) et fixent la part espèces d'un mixte ; sinon les
+ * espèces tapées passent d'un mixte à l'autre.
+ */
 export function choisirMoyen(etat, moyen) {
   if (!MOYENS.includes(moyen) || moyen === etat.moyen) return etat;
+  if (etat.onglet === 'reprise' && !MOYENS_REPRISE.includes(moyen)) return etat;
+  const comptees = totalCompte(etat.comptage || {});
   const garder = avecEspeces(moyen) && avecEspeces(etat.moyen);
-  return panierModifie(etat, { moyen, especesSaisie: garder ? etat.especesSaisie : '', cheques: chequesVides() });
+  const saisie = !avecEspeces(moyen) ? '' : comptees > 0 ? enSaisie(comptees) : garder ? etat.especesSaisie : '';
+  return panierModifie(etat, { moyen, especesSaisie: saisie, cheques: chequesVides(), retourPrestation: false });
 }
 
 export function saisirEspeces(etat, texte) {
@@ -321,27 +342,6 @@ export function basculerSecours(etat, { indisponible, eleve = null }) {
   return { ...etat, ecran: 'secours', paiement: null, secours };
 }
 
-// ─── Magasin ─────────────────────────────────────────────────────────────────
+// ─── Magasin (magasin.js) ─────────────────────────────────────────────────────
 
-/**
- * Le seul endroit où l'état change. `appliquer(transition, …args)` calcule le
- * nouvel état et prévient les abonnés. Un abonné qui plante ne prive pas les
- * autres de leur rendu : un défaut d'affichage ne doit jamais bloquer la caisse.
- */
-export function creerMagasin(initial = creerEtat()) {
-  let etat = initial;
-  const abonnes = [];
-  return {
-    lire: () => etat,
-    appliquer(transition, ...args) {
-      const suivant = transition(etat, ...args);
-      if (suivant === etat) return etat;
-      etat = suivant;
-      for (const f of abonnes) {
-        try { f(etat); } catch (e) { console.error('[caisse] rendu :', e); }
-      }
-      return etat;
-    },
-    ecouter(f) { abonnes.push(f); },
-  };
-}
+export { creerMagasin } from './magasin.js';

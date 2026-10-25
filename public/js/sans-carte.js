@@ -18,6 +18,7 @@ import * as api from './api.js';
 import { devisAJour, paiementEtape, paiementErreur, paiementAccepte, identificationRequise } from './etat.js';
 import { avecCheques } from './etat-cheques.js';
 import { devisExpire, devisRenouvele, resultat } from './paiement.js';
+import { billetage } from './especes-compte.js';
 
 export const MOYENS_SANS_CARTE = ['especes', 'cheques', 'especes_cheques'];
 
@@ -55,13 +56,15 @@ export async function encaisserSansCarte() {
   const moyen = etat.moyen;
   const affiche = empreinteAffichee(etat.devis);
   const messageEcart = avecCheques(moyen) ? MESSAGE_ECART_CHEQUES : null;
+  // Le détail des espèces comptées (coupures gardées) : enregistré et imprimé sur le bordereau.
+  const detail = moyen === 'cheques' ? null : billetage(etat.comptage || {});
   magasin.appliquer(paiementEtape, 'especes');
 
-  let r = await api.especes(etat.jetonDevis);
+  let r = await api.especes(etat.jetonDevis, detail);
   if (devisExpire(r) || devisAutreJour(r)) {
     const jeton = await devisRenouvele(empreinteAffichee, affiche, messageEcart);
     if (!jeton) return;
-    r = await api.especes(jeton);
+    r = await api.especes(jeton, detail);
   }
   if (r.status === 401) return magasin.appliquer(identificationRequise, (r.data && r.data.code) || 'jeton_expire', r.message);
   const declaration = r.data && r.data.declaration;

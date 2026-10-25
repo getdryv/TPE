@@ -100,17 +100,22 @@ export const devis = (corps, signal) => appel('POST', '/api/caisse/devis', { cor
  * périmé. La clé d'idempotence est propre à CHAQUE tentative : un double clic
  * ne crée pas deux paiements, un « Réessayer » en crée bien un nouveau.
  */
-export const paiement = ({ lecteur, devis: jetonDevis, email, nomComplet }, cleIdempotence) =>
+export const paiement = ({ lecteur, devis: jetonDevis, email, nomComplet, billetage }, cleIdempotence) =>
   appel('POST', '/api/caisse/paiement', {
-    corps: { lecteur, devis: jetonDevis, email, nomComplet },
+    // `billetage` : espèces + carte, le détail des espèces comptées (vérifié par le serveur).
+    corps: { lecteur, devis: jetonDevis, email, nomComplet, ...(billetage ? { billetage } : {}) },
     entetes: { 'Idempotency-Key': cleIdempotence },
   });
 
 /** `{ success, montant, declaration }`. */
 export const capture = (paymentIntentId) => appel('POST', '/api/caisse/capture', { corps: { paymentIntentId } });
 
-/** Espèces seules : `{ declaration }`. */
-export const especes = (jetonDevis) => appel('POST', '/api/caisse/especes', { corps: { devis: jetonDevis } });
+/** Sans lecteur (espèces, chèques, espèces + chèques) : `{ declaration }` ; `billetage` = espèces comptées. */
+export const especes = (jetonDevis, billetage = null) =>
+  appel('POST', '/api/caisse/especes', { corps: { devis: jetonDevis, ...(billetage ? { billetage } : {}) } });
+
+/** « Réimprimer le bordereau » : `{ bordereau }` (duplicata, tracé par le CRM). */
+export const bordereau = (encaissementId) => appel('POST', '/api/caisse/bordereau', { corps: { encaissementId } });
 
 // ─── Lecteur (routes historiques, communes aux deux modes) ───────────────────
 

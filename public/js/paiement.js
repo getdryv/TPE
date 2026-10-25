@@ -18,6 +18,8 @@ import { el, remplir, nomComplet } from './format.js';
 import {
   devisAJour, paiementEtape, paiementErreur, paiementRefuse, paiementAccepte, identificationRequise,
 } from './etat.js';
+import { billetage } from './especes-compte.js';
+import { numerosCoches } from './reprise.js';
 
 export const DELAI_SONDAGE_MS = 1500;
 // Deux minutes : au-delà, la carte ne viendra plus et laisser l'écran du
@@ -201,7 +203,9 @@ export async function devisRenouvele(montantDe, montantAffiche, messageEcart = n
 
 export function resultat(etat, extra) {
   const e = etat.eleve.eleve;
-  return { devis: etat.devis, eleve: nomComplet(e.prenom, e.nom), ...extra };
+  // Reprise de chèque : la bande dit quel chèque rendre à l'élève.
+  const rendus = numerosCoches(etat);
+  return { devis: etat.devis, eleve: nomComplet(e.prenom, e.nom), ...(rendus.length ? { chequesRendus: rendus } : {}), ...extra };
 }
 
 /** Envoie au lecteur la part carte du devis en main. */
@@ -213,8 +217,10 @@ export async function envoyerCarte() {
   const e = etat.eleve.eleve;
   magasin.appliquer(paiementEtape, 'envoi');
 
+  // Espèces + carte : le détail des espèces comptées voyage avec le paiement (capture et webhook le relisent).
+  const detail = etat.moyen === 'mixte' ? billetage(etat.comptage || {}) : null;
   const envoyer = (jeton) => api.paiement(
-    { lecteur, devis: jeton, email: e.email || '', nomComplet: nomComplet(e.prenom, e.nom) },
+    { lecteur, devis: jeton, email: e.email || '', nomComplet: nomComplet(e.prenom, e.nom), billetage: detail },
     api.nouvelleCle());
 
   let r = await envoyer(etat.jetonDevis);

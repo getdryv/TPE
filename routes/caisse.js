@@ -19,6 +19,7 @@ const { lireDevis, decouperPourMetadonnees, recomposerDepuisMetadonnees, sansCar
 const { sessionCaisse } = require('../lib/session');
 const { lancerEncaissement, capturerSiBesoin } = require('../lib/terminal');
 const { declarerEncaissementCaisse } = require('../lib/declaration');
+const { billetageDuDevis, versMetadonnee, depuisMetadonnee } = require('../lib/billetage');
 
 const router = express.Router();
 
@@ -129,6 +130,9 @@ router.post('/api/caisse/paiement', async (req, res) => {
 
     const morceaux = decouperPourMetadonnees(req.body.devis);
     if (!morceaux) return res.status(400).json({ error: MESSAGES_DEVIS.invalide, code: 'devis_invalide' });
+    // Espèces + carte : le détail des espèces comptées, vérifié contre le devis AVANT le lecteur.
+    const billetage = billetageDuDevis(req.body?.billetage, devis.esp);
+    if (!billetage.ok) return res.status(400).json({ error: billetage.message, code: 'billetage_invalide' });
 
     const agence = await exigerAgence(req, res);
     if (!agence) return;
@@ -150,6 +154,7 @@ router.post('/api/caisse/paiement', async (req, res) => {
         // Pour le seul reçu Stripe : ils ne décident de rien.
         fullName: nomComplet,
         email,
+        ...(billetage.billetage ? { billetage: versMetadonnee(billetage.billetage) } : {}),
         ...morceaux,
       },
     });
@@ -212,7 +217,9 @@ router.post('/api/caisse/capture', async (req, res) => {
         devis: jetonDevis,
         stripePaymentIntentId: pris.id,
         montantCarteCents: montant,
-        paidAt: pris.created ? new Date(pris.created * 1000).toISOString() : null,
+        // L'heure de la CAPTURE (ce serveur, maintenant) : c'est l'instant de l'encaissement.
+        paidAt: new Date().toISOString(),
+        billetage: depuisMetadonnee(pris.metadata && pris.metadata.billetage),
       },
       { devisId: lecture.devis.id }
     );
@@ -250,10 +257,14 @@ router.post('/api/caisse/especes', async (req, res) => {
   if (!sansCarte(devis)) {
     return res.status(400).json({ error: "Ce devis comporte une part carte : passez par le lecteur.", code: 'devis_avec_carte' });
   }
+  // Le détail des espèces comptées : la somme doit tomber pile sur la part espèces signée.
+  const billetage = billetageDuDevis(req.body?.billetage, devis.esp);
+  if (!billetage.ok) return res.status(400).json({ error: billetage.message, code: 'billetage_invalide' });
 
+  // L'heure n'est pas envoyée : sans carte, le CRM horodate lui-même (heure de son serveur).
   const declaration = await declarerEncaissementCaisse(
     devis.a,
-    { devis: req.body.devis, stripePaymentIntentId: null, montantCarteCents: 0, paidAt: new Date().toISOString() },
+    { devis: req.body.devis, stripePaymentIntentId: null, montantCarteCents: 0, paidAt: null, billetage: billetage.billetage },
     { relancer: false, devisId: devis.id }
   );
   if (declaration.statut === 'en_attente') {

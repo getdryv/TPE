@@ -9,6 +9,8 @@
        jamais au lecteur : c'est le serveur qui demande à Stripe de le piloter. -->
   <link rel="stylesheet" href="/caisse.css" />
   <link rel="stylesheet" href="/cheques.css" />
+  <link rel="stylesheet" href="/especes.css" />
+  <link rel="stylesheet" href="/bordereau.css" />
   <script type="module" src="/js/main.js"></script>
 </head>
 <body>
@@ -66,6 +68,8 @@
         <div id="bandeauEleve" class="bandeau-eleve"></div>
         <div id="onglets" class="onglets" role="tablist" aria-label="Que faut-il encaisser ?"></div>
         <div id="contenuOnglet" class="contenu-onglet" role="tabpanel"></div>
+        <!-- Comptage des espèces : remplace les onglets dès qu'un moyen avec espèces est choisi (feuille-especes.js). -->
+        <div id="feuilleEspeces" class="feuille" hidden></div>
       </div>
       <aside id="panier" class="panier" aria-label="À encaisser"></aside>
     </section>
@@ -117,5 +121,8 @@
       </form>
     </section>
   </main>
+
+  <!-- Le bordereau d'espèces : invisible à l'écran, seul imprimé (bordereau.js, bordereau.css). -->
+  <div id="impressionBordereau" class="impression" aria-hidden="true"></div>
 </body>
 </html>

@@ -1,0 +1,99 @@
+/* ─── Caisse : espèces comptées, reprise de chèque (maquette validée du 25/10) ──
+   Charte de caisse.css : bleu #0570de, sélection bordure 2 px bleue sur
+   #f2f7fe, cibles de 48 px, AUCUNE transparence sur du texte, liens jamais
+   soulignés. Le compteur est toujours au même endroit : sous les moyens. */
+
+/* Liens et boutons-liens : jamais soulignés (préférence du gérant). */
+.lien-btn { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+.lien-btn:hover { color: var(--primaire); }
+
+/* Un montant ne se coupe jamais (le corps de page autorise les coupures n'importe où). */
+.ligne-panier span:last-child, .co-mt, .st, .compteur-val { white-space: nowrap; }
+
+kbd {
+  font: inherit; font-size: 13px; font-weight: 700; border: 1px solid var(--bordure); border-bottom-width: 2px;
+  border-radius: 5px; padding: 1px 6px; background: #fff; color: var(--texte);
+}
+.btnp kbd { background: var(--primaire-fonce); border-color: #fff; color: #fff; margin-left: 6px; }
+
+/* Onglets : cinq sur une rangée (maquette), « Reprise de chèque » compris. */
+.onglets { gap: 2px; padding: 4px; }
+.onglet { padding: 0 12px; font-size: 14px; }
+
+/* ─── Feuille de comptage ─────────────────────────────────────────────────── */
+.feuille { display: flex; flex-direction: column; gap: 14px; }
+.feuille-tete { display: flex; flex-direction: column; gap: 6px; }
+.feuille .retour { align-self: flex-start; min-height: 40px; }
+.titre-feuille { margin: 0; font-size: 22px; }
+.consigne { margin: 0; font-size: 15px; color: var(--secondaire); }
+.coupures {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 36px; background: #fff;
+  border: 1px solid var(--filet); border-radius: 12px; padding: 6px 20px 10px; max-width: 760px;
+}
+.col-titre, .ligne-c { display: grid; grid-template-columns: 96px 80px minmax(0, 1fr); gap: 12px; align-items: center; }
+.col-titre { font-size: 15px; font-weight: 700; padding: 10px 0 6px; border-bottom: 1px solid var(--filet); }
+.col-titre span:nth-child(2) { text-align: center; }
+.col-titre span:last-child { text-align: right; }
+.ligne-c { min-height: 60px; border-bottom: 1px solid var(--filet); }
+.ligne-c:last-child { border-bottom: 0; }
+.ligne-c.a-rendre { background: var(--warn-fond); margin: 0 -10px; padding: 0 10px; border-radius: 8px; }
+.coupure {
+  position: relative; height: 48px; width: 96px; border: 1px solid var(--texte); border-radius: 6px; background: #fff;
+  font: inherit; font-size: 17px; font-weight: 700; color: var(--texte); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+/* Le filet intérieur d'un billet : une bordure grise pleine (pas de transparence). */
+.coupure::before { content: ""; position: absolute; inset: 4px; border: 1px solid #c3c8d1; border-radius: 3px; pointer-events: none; }
+.coupure.piece {
+  height: 50px; width: 50px; margin-left: 23px; border-radius: 25px; font-size: 14px; padding: 0;
+}
+.coupure.piece::before { display: none; }
+.coupure:disabled { cursor: not-allowed; }
+.in-nb {
+  width: 80px; height: 48px; border: 1px solid var(--bordure); border-radius: 10px; font: inherit; font-size: 20px;
+  font-weight: 700; text-align: center; color: var(--texte); background: #fff; font-variant-numeric: tabular-nums;
+}
+.in-nb:focus { outline: none; border-color: var(--primaire); box-shadow: inset 0 0 0 1px var(--primaire), 0 0 0 3px #bcd4f5; }
+.in-nb[aria-invalid="true"] { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
+.st { text-align: right; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.st.rendre { line-height: 1.25; }
+.st small { display: block; font-size: 14px; font-weight: 700; color: var(--warn-texte); }
+.raccourcis { margin: 0; font-size: 14px; color: var(--secondaire); display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; max-width: 760px; }
+
+/* ─── Compteur « Espèces comptées » (panier) ──────────────────────────────── */
+.compteur { border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--filet); background: var(--fond); }
+.compteur.juste { background: var(--ok-fond); border-color: var(--ok-bord); }
+.compteur.trop { background: var(--warn-fond); border-color: var(--warn-bord); }
+.compteur-ligne { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.compteur-lib { font-size: 16px; font-weight: 600; }
+.compteur-val { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.compteur-etat { margin: 0; font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.etat-manque, .etat-trop { color: var(--warn-texte); }
+.etat-juste { color: var(--ok-texte); }
+.compteur-aide { margin: 0; font-size: 15px; color: var(--texte); }
+.compteur .btn { align-self: flex-start; background: #fff; }
+.compteur .lien-btn { align-self: flex-start; }
+
+/* ─── Reprise de chèque ───────────────────────────────────────────────────── */
+.liste-cheques { display: flex; flex-direction: column; gap: 12px; max-width: 620px; }
+.case-cheque { align-items: center; gap: 14px; width: 100%; font: inherit; text-align: left; color: var(--texte); }
+.case-cheque.coche { border: 2px solid var(--primaire); background: var(--selection); padding: 13px 15px; }
+.case {
+  width: 22px; height: 22px; border-radius: 5px; border: 2px solid var(--bordure); background: #fff; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+.coche .case { background: var(--primaire); border-color: var(--primaire); }
+.co-texte { display: flex; flex-direction: column; gap: 2px; flex-grow: 1; min-width: 0; }
+.co-nom { font-weight: 700; font-size: 16px; }
+.co-mt { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+@media (max-width: 1000px) {
+  .coupures { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+@media (max-width: 520px) {
+  .coupures { padding: 6px 12px 10px; }
+  .col-titre, .ligne-c { grid-template-columns: 72px 72px minmax(0, 1fr); gap: 10px; }
+  .coupure { width: 72px; }
+  .coupure.piece { margin-left: 11px; }
+  .in-nb { width: 72px; }
+}

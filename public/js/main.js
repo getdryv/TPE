@@ -15,7 +15,8 @@ import * as cadre from './cadre.js';
 import { creerMagasin, sessionOuverte } from './etat.js';
 import { initEcranEleve, rendreEcranEleve, chargerEleve } from './ecran-eleve.js';
 import { initOnglets, rendreOnglets } from './onglets.js';
-import { initPanier, rendrePanier, redemanderDevis } from './panier.js';
+import { initPanier, rendrePanier, redemanderDevis, validerSiPret } from './panier.js';
+import { initFeuille, rendreFeuille } from './feuille-especes.js';
 import { initPaiement, chargerLecteurs, surveillerLecteurs, rendreEnteteLecteur } from './paiement.js';
 import { initIssues, rendreIssues } from './ecrans-issue.js';
 import { initSecours, rendreSecours } from './secours.js';
@@ -23,7 +24,7 @@ import { initSecours, rendreSecours } from './secours.js';
 const magasin = creerMagasin();
 let precedent = null;
 
-const RENDUS = [rendreEcranEleve, rendreOnglets, rendrePanier, rendreIssues, rendreSecours, rendreEnteteLecteur];
+const RENDUS = [rendreEcranEleve, rendreOnglets, rendreFeuille, rendrePanier, rendreIssues, rendreSecours, rendreEnteteLecteur];
 
 function rendre(etat) {
   document.querySelectorAll('[data-ecran]').forEach((s) => { s.hidden = s.dataset.ecran !== etat.ecran; });
@@ -72,6 +73,7 @@ async function demarrer() {
   });
   initPanier(magasin);
   initOnglets(magasin);
+  initFeuille(magasin, validerSiPret);
   initIssues(magasin);
   initSecours({ retenterCatalogue: () => ouvrirSession(null) });
   try {

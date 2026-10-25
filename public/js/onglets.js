@@ -19,8 +19,10 @@ import {
   changerEleve, choisirOnglet, basculerAccompagnementSeul, saisirLibre,
 } from './etat.js';
 import { initSelecteurs, rendreForfait, rendreHeuresSupp } from './selecteurs.js';
+import { chequesReprenables } from './etat.js';
+import { contenuReprise, initReprise, majReprise } from './reprise.js';
 
-const LIBELLES = { forfait: 'Forfait initial', heures_supp: 'Heures supp', prepa: 'Prépa permis', libre: 'Montant libre' };
+const LIBELLES = { forfait: 'Forfait initial', heures_supp: 'Heures supp', prepa: 'Prépa permis', libre: 'Montant libre', reprise: 'Reprise de chèque' };
 
 const INDISPONIBLE = {
   tarif_absent: 'Le tarif des heures n\'est pas au catalogue de l\'agence : la prépa ne peut pas être encaissée ici.',
@@ -45,8 +47,11 @@ function bandeauEleve(ec) {
   ];
 }
 
+/** Le 5e onglet n'apparaît que si l'élève a des chèques reprenables (CRM à jour). */
 function barreOnglets(etat) {
-  return ['forfait', 'heures_supp', 'prepa', 'libre'].map((o) => el('button', {
+  const nbReprises = chequesReprenables(etat).length;
+  const onglets = ['forfait', 'heures_supp', 'prepa', 'libre', ...(nbReprises ? ['reprise'] : [])];
+  return onglets.map((o) => el('button', {
     type: 'button', role: 'tab', class: 'onglet', id: `onglet-${o}`, 'data-verrou': '',
     'aria-selected': String(etat.onglet === o),
     onclick: () => magasin.appliquer(choisirOnglet, o),
@@ -160,6 +165,7 @@ function contenu(etat) {
   if (etat.onglet === 'heures_supp') return [el('div', { id: 'selecteursHeures', class: 'selecteurs' })];
   if (etat.onglet === 'prepa') return contenuPrepa(etat.eleve);
   if (etat.onglet === 'libre') return contenuLibre(etat);
+  if (etat.onglet === 'reprise') return contenuReprise(etat);
   return contenuForfait(etat.eleve);
 }
 
@@ -170,6 +176,7 @@ function majSelection(etat) {
   if (forfait) rendreForfait(forfait, etat);
   const packs = $('selecteursHeures');
   if (packs) rendreHeuresSupp(packs, etat);
+  majReprise(etat);
   const seul = $('accompagnementSeul');
   if (seul) seul.setAttribute('aria-pressed', String(Boolean(p.accompagnementSeul)));
   // Pendant un paiement, le panier est figé : c'est lui qui est sur le lecteur.
@@ -201,4 +208,5 @@ export function rendreOnglets(etat) {
 export function initOnglets(m) {
   magasin = m;
   initSelecteurs(m);
+  initReprise(m);
 }

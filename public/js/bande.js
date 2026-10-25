@@ -15,9 +15,11 @@
 
 import * as cadre from './cadre.js';
 import { el, remplir, euros, eurosCourts, jourCourt } from './format.js';
+import { imprimerBordereau } from './bordereau.js';
 
 let detailOuvert = false;
 let dessinee = null;
+let messageImpression = '';   // « Réimpression impossible : … », jusqu'au prochain encaissement
 const $ = (id) => document.getElementById(id);
 
 const ICO_OK = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>';
@@ -92,6 +94,24 @@ function recapitulatif(r, utilisateur) {
     boutons.length ? el('div', { class: 'boutons-bande' }, boutons) : null);
 }
 
+/** PURE. « Rendez-lui le chèque n° 0004521 » (reprise de chèque), ou ''. */
+export function texteChequesRendus(numeros) {
+  if (!Array.isArray(numeros) || !numeros.length) return '';
+  return numeros.length === 1 ? `Rendez-lui le chèque n° ${numeros[0]}` : `Rendez-lui les chèques ${numeros.map((x) => `n° ${x}`).join(', ')}`;
+}
+
+/** « Réimprimer le bordereau » : le CRM renvoie un DUPLICATA et trace la demande. */
+async function reimprimer(hote, etat) {
+  // Chargé à la demande : ce module reste importable sous node (tests des fonctions pures).
+  const api = await import('./api.js');
+  const id = etat.bande && etat.bande.declaration && etat.bande.declaration.encaissementId;
+  const r = id ? await api.bordereau(id) : { ok: false, message: 'Encaissement inconnu.' };
+  const b = r.ok && r.data && r.data.bordereau;
+  messageImpression = b && imprimerBordereau(b, { par: (etat.utilisateur && etat.utilisateur.nom) || '', le: new Date().toISOString() })
+    ? '' : `Réimpression impossible : ${r.message || 'bordereau indisponible'}.`;
+  dessiner(hote, etat);
+}
+
 function dessiner(hote, etat) {
   const r = etat.bande;
   const entete = enteteBande(r.declaration);
@@ -99,14 +119,23 @@ function dessiner(hote, etat) {
   const genre = email && email.alerte ? 'warn' : entete.genre;
   const ico = el('span', { class: 'ico', 'aria-hidden': 'true' });
   if (genre === 'ok') ico.innerHTML = ICO_OK; // pictogramme constant, sans donnée
-  const resume = [texteRepartition(r.devis), r.eleve, entete.suite, email && email.texte].filter(Boolean).join(' · ');
+  const bordereau = r.declaration && r.declaration.bordereau;
+  const rendus = texteChequesRendus(r.chequesRendus);
+  const avant = [texteRepartition(r.devis), r.eleve].filter(Boolean).join(' · ');
+  const apres = [entete.suite, bordereau ? 'Bordereau imprimé' : '', email && email.texte].filter(Boolean).join(' · ');
   const bascule = el('button', {
     type: 'button', class: 'lien-btn', 'aria-expanded': String(detailOuvert), 'aria-controls': 'detailBande',
     onclick: () => { detailOuvert = !detailOuvert; dessiner(hote, etat); },
   }, detailOuvert ? 'Masquer le détail' : 'Voir le détail');
+  const reimpression = bordereau
+    ? el('button', { type: 'button', class: 'lien-btn', onclick: () => reimprimer(hote, etat) }, 'Réimprimer le bordereau')
+    : null;
   remplir(hote,
     el('div', { class: `bande bande-${genre}`, role: 'status' }, ico,
-      el('span', { class: 'grandit' }, el('b', {}, entete.titre), resume ? ` · ${resume}` : ''), bascule),
+      el('span', { class: 'grandit' }, el('b', {}, entete.titre), avant ? ` · ${avant}` : '',
+        rendus ? [' · ', el('b', {}, rendus)] : '', apres ? ` · ${apres}` : '',
+        messageImpression ? el('span', { class: 'bloc' }, messageImpression) : null),
+      reimpression, bascule),
     detailOuvert ? recapitulatif(r, etat.utilisateur) : null);
 }
 
@@ -123,5 +152,9 @@ export function rendreBande(etat) {
   if (dessinee === etat.bande) return;
   dessinee = etat.bande;
   detailOuvert = false;
+  messageImpression = '';
   dessiner(hote, etat);
+  // Le bordereau d'espèces s'imprime de lui-même, une fois, à l'apparition de la bande.
+  const b = etat.bande.declaration && etat.bande.declaration.bordereau;
+  if (b) imprimerBordereau(b);
 }
