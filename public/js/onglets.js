@@ -14,7 +14,7 @@
 // ne met à jour que la sélection. Reconstruire à chaque frappe ferait perdre le
 // focus du champ en cours de saisie (montant libre).
 
-import { el, remplir, heures, dateCourte, nomComplet } from './format.js';
+import { el, remplir, heures, dateCourte, nomComplet, euros } from './format.js';
 import {
   changerEleve, choisirOnglet, basculerAccompagnementSeul, saisirLibre,
 } from './etat.js';
@@ -92,14 +92,22 @@ function contenuPrepa(ec) {
     el('div', { class: 'gras' }, p.retourEnFile ? 'Retour en file après ajournement' : 'Préconisation du moniteur'),
     el('div', { class: 'muted petit' }, textePreconisation(p)));
   if (p.mode !== 'rien') {
+    // Les montants s'affichent tout de suite : c'est le calcul du CRM (le même que le lien de paiement),
+    // sans attendre le choix du moyen de paiement.
+    const ligneHeures = (p.lignes || []).find((l) => l.nature !== 'accompagnement');
+    const ligneAcc = (p.lignes || []).find((l) => l.nature === 'accompagnement');
     const detail = p.heuresFacturees > p.heuresManquantes && p.heuresManquantes > 0
       ? `${heures(p.heuresFacturees)} (${heures(p.heuresManquantes)} manquantes, arrondi au pack)`
       : heures(p.heuresFacturees);
+    const montant = (l) => (l && Number.isFinite(l.montantCents) ? ` · ${euros(l.montantCents)}` : '');
     carte.append(
-      el('div', { class: 'l l-total' }, el('span', {}, 'Heures à payer'),
-        el('span', { id: 'prepaHeures' }, p.heuresFacturees > 0 ? detail : 'aucune')),
+      el('div', { class: 'l' }, el('span', {}, 'Heures à payer'),
+        el('span', { id: 'prepaHeures' }, p.heuresFacturees > 0 ? `${detail}${montant(ligneHeures)}` : 'aucune')),
       el('div', { class: 'l' }, el('span', {}, 'Accompagnement à l\'examen'),
-        el('span', {}, accompagnementDu ? 'dû pour ce passage' : 'rien à régler')));
+        el('span', {}, accompagnementDu ? `dû pour ce passage${montant(ligneAcc)}` : 'rien à régler')));
+    if (Number.isFinite(p.totalCents) && p.totalCents > 0) {
+      carte.append(el('div', { class: 'l l-total' }, el('span', {}, 'Total à régler'), el('span', { id: 'prepaTotal' }, euros(p.totalCents))));
+    }
   }
   blocs.push(carte);
 
