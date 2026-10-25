@@ -117,6 +117,30 @@ export function aujourdhuiParis(maintenant = new Date()) {
     .format(maintenant);
 }
 
+const JOURS_LONGS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+const MOIS_LONGS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+
+/**
+ * Une date EN TOUTES LETTRES : « 24 octobre », « mardi 12 novembre » (avec
+ * `jourSemaine`), l'année seulement si ce n'est pas celle d'aujourd'hui. Un
+ * jour seul (« 2026-11-12 ») est pris tel quel ; un horodatage est ramené au
+ * jour civil de Paris. Chaîne vide si illisible.
+ */
+export function dateEnLettres(iso, { jourSemaine = false, maintenant = new Date() } = {}) {
+  if (typeof iso !== 'string' || !iso) return '';
+  let jour = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : '';
+  if (!jour) {
+    const t = new Date(iso);
+    if (Number.isNaN(t.getTime())) return '';
+    jour = aujourdhuiParis(t);
+  }
+  const d = jourUtc(jour);
+  if (!d) return '';
+  const annee = d.getUTCFullYear() === Number(aujourdhuiParis(maintenant).slice(0, 4)) ? '' : ` ${d.getUTCFullYear()}`;
+  const base = `${d.getUTCDate() === 1 ? '1er' : d.getUTCDate()}${ESPACE}${MOIS_LONGS[d.getUTCMonth()]}${annee}`;
+  return jourSemaine ? `${JOURS_LONGS[d.getUTCDay()]} ${base}` : base;
+}
+
 /** « Lina » + « BENALI » → « Lina BENALI », sans espaces parasites. */
 export function nomComplet(prenom, nom) {
   return [prenom, nom].map((s) => String(s ?? '').trim()).filter(Boolean).join(' ');

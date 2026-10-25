@@ -1,0 +1,65 @@
+/* ─── Onglet « Examen » (examen.js) : maquettes ExamenBPE / Paye / Representation ───
+   Bandeau d'en-tête (date prévue en bleu, sans date en gris, ajourné / absent
+   en orange), lignes séparées par un filet, compteurs − / nombre / +, montants
+   à droite. Le total est dans le panier, jamais répété ici. */
+
+.carte-examen { padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
+
+.examen-bandeau { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 10px; }
+.examen-bandeau-info { background: var(--selection); border: 1px solid #bcd4f5; color: var(--primaire); }
+.examen-bandeau-gris { background: var(--gris); color: var(--secondaire); }
+.examen-bandeau-warn { background: var(--warn-fond); border: 1px solid var(--warn-bord); color: var(--warn-texte); }
+.examen-ico { display: inline-flex; flex-shrink: 0; }
+.examen-bandeau-texte { display: flex; flex-direction: column; gap: 2px; }
+.examen-bandeau-titre { font-size: 17px; font-weight: 700; }
+.examen-bandeau-info .examen-bandeau-titre { color: var(--primaire-fonce); }
+.examen-bandeau-gris .examen-bandeau-titre { font-size: 16px; font-weight: 600; color: #3c4557; }
+.examen-bandeau-warn .examen-bandeau-titre { font-size: 16px; }
+.examen-bandeau-sous { font-size: 14px; color: var(--secondaire); }
+
+.examen-titre { display: flex; flex-direction: column; gap: 4px; }
+.examen-titre .gras { font-size: 16px; }
+.examen-sous { font-size: 15px; color: var(--secondaire); }
+
+.examen-ligne {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 0; border-top: 1px solid var(--filet);
+}
+.examen-ligne-gauche { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.examen-ligne-titre { font-size: 15px; font-weight: 600; }
+.examen-aide { font-size: 13px; line-height: 1.45; color: var(--secondaire); max-width: 360px; }
+.examen-montant { font-size: 16px; font-weight: 700; text-align: right; white-space: nowrap; }
+.examen-confirmation { font-size: 13px; font-weight: 700; }
+.examen-confirmation:empty { display: none; }
+.examen-confirmation[data-genre="ok"] { color: #0d6832; }
+.examen-confirmation[data-genre="attente"] { color: var(--secondaire); font-weight: 600; }
+.examen-confirmation[data-genre="erreur"] { color: var(--danger); }
+
+.examen-compteur { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.examen-pas {
+  width: 40px; height: 44px; border-radius: 10px; border: 1px solid var(--bordure); background: #fff;
+  font: inherit; font-size: 20px; font-weight: 600; color: var(--texte); cursor: pointer;
+}
+.examen-pas:hover:not(:disabled) { background: var(--selection); }
+.examen-valeur {
+  width: 64px; height: 44px; border-radius: 8px; border: 2px solid var(--primaire); background: #fff;
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px; font-size: 18px; font-weight: 700;
+}
+.examen-champ {
+  width: 26px; border: 0; padding: 0; background: transparent; text-align: right;
+  font: inherit; font-size: 18px; font-weight: 700; color: var(--texte);
+}
+.examen-champ:focus { outline: none; }
+.examen-valeur:focus-within { box-shadow: 0 0 0 3px #bcd4f5; }
+
+/* Bande verte : le rappel du logiciel de gestion (bande.js). */
+.consigne-facture {
+  margin-top: 8px; padding: 12px 14px; border-radius: 10px; background: #fff; border: 1px solid var(--ok-bord);
+  font-size: 16px; color: var(--texte);
+}
+
+@media (max-width: 560px) {
+  .carte-examen { padding: 16px; }
+  .examen-ligne { flex-wrap: wrap; }
+  .examen-ligne > :last-child { margin-left: auto; }
+}

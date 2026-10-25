@@ -5,8 +5,8 @@
 // fait foi, et c'est lui que le panier affiche et que le lecteur débite.
 //
 // Jamais de liste déroulante : Forfait initial et Heures supp sont des
-// sélecteurs segmentés (selecteurs.js), la prépa une carte, le montant libre
-// un montant et un commentaire facultatif.
+// sélecteurs segmentés (selecteurs.js), l'onglet Examen une carte (examen.js),
+// le montant libre un montant et un commentaire facultatif.
 // L'onglet « Montant libre » est ouvert à tout compte qui encaisse, sans motif
 // (décision du 27/09/2026) : le CRM trace le nom de la personne.
 //
@@ -14,19 +14,14 @@
 // ne met à jour que la sélection. Reconstruire à chaque frappe ferait perdre le
 // focus du champ en cours de saisie (montant libre).
 
-import { el, remplir, heures, dateCourte, nomComplet, euros } from './format.js';
-import {
-  changerEleve, choisirOnglet, basculerAccompagnementSeul, saisirLibre,
-} from './etat.js';
+import { el, remplir, nomComplet } from './format.js';
+import { changerEleve, choisirOnglet, saisirLibre } from './etat.js';
+import { contenuExamen, initExamen, majExamen } from './examen.js';
 import { initSelecteurs, rendreForfait, rendreHeuresSupp } from './selecteurs.js';
 import { chequesReprenables } from './etat.js';
 import { contenuReprise, initReprise, majReprise } from './reprise.js';
 
-const LIBELLES = { forfait: 'Forfait initial', heures_supp: 'Heures supp', prepa: 'Prépa permis', libre: 'Montant libre', reprise: 'Reprise de chèque' };
-
-const INDISPONIBLE = {
-  tarif_absent: 'Le tarif des heures n\'est pas au catalogue de l\'agence : la prépa ne peut pas être encaissée ici.',
-};
+const LIBELLES = { forfait: 'Forfait initial', heures_supp: 'Heures supp', prepa: 'Examen', libre: 'Montant libre', reprise: 'Reprise de chèque' };
 
 let magasin = null;
 let rendu = { eleveId: null, onglet: null };
@@ -71,68 +66,6 @@ function contenuForfait(ec) {
   return blocs;
 }
 
-function textePreconisation(p) {
-  if (p.retourEnFile) {
-    return `Ajourné au dernier passage : ${heures(p.heuresManquantes)} de reprise avant de revenir en file d'examen.`;
-  }
-  const c = p.preconisation;
-  if (!c) return 'Aucune préconisation du moniteur pour l\'instant.';
-  const qui = c.moniteur || 'Le moniteur';
-  const quand = dateCourte(c.date);
-  return `${qui}${quand ? `, le ${quand}` : ''} : ${heures(c.heures)} de préparation avant l'examen.`;
-}
-
-function contenuPrepa(ec) {
-  const p = ec.prepa;
-  if (!p) return [el('p', { class: 'muted petit' }, 'Prépa indisponible.')];
-  const blocs = [];
-  const accompagnementDu = (p.lignes || []).some((l) => l.nature === 'accompagnement');
-
-  const carte = el('div', { class: 'carte carte-prepa' },
-    el('div', { class: 'gras' }, p.retourEnFile ? 'Retour en file après ajournement' : 'Préconisation du moniteur'),
-    el('div', { class: 'muted petit' }, textePreconisation(p)));
-  if (p.mode !== 'rien') {
-    // Les montants s'affichent tout de suite : c'est le calcul du CRM (le même que le lien de paiement),
-    // sans attendre le choix du moyen de paiement.
-    const ligneHeures = (p.lignes || []).find((l) => l.nature !== 'accompagnement');
-    const ligneAcc = (p.lignes || []).find((l) => l.nature === 'accompagnement');
-    const detail = p.heuresFacturees > p.heuresManquantes && p.heuresManquantes > 0
-      ? `${heures(p.heuresFacturees)} (${heures(p.heuresManquantes)} manquantes, arrondi au pack)`
-      : heures(p.heuresFacturees);
-    const montant = (l) => (l && Number.isFinite(l.montantCents) ? ` · ${euros(l.montantCents)}` : '');
-    carte.append(
-      el('div', { class: 'l' }, el('span', {}, 'Heures à payer'),
-        el('span', { id: 'prepaHeures' }, p.heuresFacturees > 0 ? `${detail}${montant(ligneHeures)}` : 'aucune')),
-      el('div', { class: 'l' }, el('span', {}, 'Accompagnement à l\'examen'),
-        el('span', {}, accompagnementDu ? `dû pour ce passage${montant(ligneAcc)}` : 'rien à régler')));
-    if (Number.isFinite(p.totalCents) && p.totalCents > 0) {
-      carte.append(el('div', { class: 'l l-total' }, el('span', {}, 'Total à régler'), el('span', { id: 'prepaTotal' }, euros(p.totalCents))));
-    }
-  }
-  blocs.push(carte);
-
-  if (p.indisponible) {
-    blocs.push(el('div', { class: 'encart encart-warn' }, INDISPONIBLE[p.indisponible] || p.indisponible));
-  } else if (p.mode === 'rien') {
-    blocs.push(el('div', { class: 'encart encart-info' },
-      'Rien à régler pour la prépa : aucune heure ne manque et aucun accompagnement n\'est dû pour ce passage.'));
-  } else if (p.mode === 'heures' && p.accompagnementSeulPossible) {
-    blocs.push(el('div', {},
-      el('button', {
-        type: 'button', class: 'pill', id: 'accompagnementSeul', 'aria-pressed': 'false', 'data-verrou': '',
-        onclick: () => {
-          const prod = magasin.lire().produit;
-          magasin.appliquer(basculerAccompagnementSeul, !(prod && prod.accompagnementSeul));
-        },
-      }, 'Accompagnement seul')));
-  }
-  if (p.mode !== 'rien' && !p.indisponible) {
-    blocs.push(el('div', { class: 'encart encart-info' }, el('b', {}, 'Accompagnement seul : '),
-      'quand il ne manque aucune heure, cet onglet ne propose que l\'accompagnement. C\'est le même calcul que le lien de paiement envoyé par e-mail : le comptoir et la boutique donnent toujours le même prix.'));
-  }
-  return blocs;
-}
-
 /**
  * Montant libre : ouvert à tout compte qui encaisse et SANS MOTIF (décision du
  * 27/09/2026). Le montant, un commentaire facultatif (jamais obligatoire) —
@@ -171,7 +104,7 @@ function contenuLibre(etat) {
 
 function contenu(etat) {
   if (etat.onglet === 'heures_supp') return [el('div', { id: 'selecteursHeures', class: 'selecteurs' })];
-  if (etat.onglet === 'prepa') return contenuPrepa(etat.eleve);
+  if (etat.onglet === 'prepa') return contenuExamen(etat);
   if (etat.onglet === 'libre') return contenuLibre(etat);
   if (etat.onglet === 'reprise') return contenuReprise(etat);
   return contenuForfait(etat.eleve);
@@ -179,14 +112,12 @@ function contenu(etat) {
 
 /** Sélection et verrous seulement : aucun nœud recréé. */
 function majSelection(etat) {
-  const p = etat.produit || {};
   const forfait = $('selecteursForfait');
   if (forfait) rendreForfait(forfait, etat);
   const packs = $('selecteursHeures');
   if (packs) rendreHeuresSupp(packs, etat);
   majReprise(etat);
-  const seul = $('accompagnementSeul');
-  if (seul) seul.setAttribute('aria-pressed', String(Boolean(p.accompagnementSeul)));
+  majExamen(etat);
   // Pendant un paiement, le panier est figé : c'est lui qui est sur le lecteur.
   const verrou = Boolean(etat.paiement);
   document.querySelectorAll('.catalogue [data-verrou]').forEach((b) => { b.disabled = verrou; });
@@ -217,4 +148,5 @@ export function initOnglets(m) {
   magasin = m;
   initSelecteurs(m);
   initReprise(m);
+  initExamen(m);
 }

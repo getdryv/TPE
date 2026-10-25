@@ -102,3 +102,11 @@ test('sansCarte : espèces, chèques, espèces + chèques ; jamais la carte', ()
   assert.equal(sansCarte(MIXTE), false);
   assert.equal(sansCarte({ ...MIXTE, mo: 'carte' }), false);
 });
+
+test('onglet Examen : heures en plus (hp ≤ h) acceptées, au-delà refusées', () => {
+  const prepa = (p) => ({ ...MIXTE, mo: 'carte', esp: 0, cb: 99900, pr: undefined, p });
+  assert.equal(devisCoherent(prepa({ t: 'prepa', h: 6, acc: true, rf: false, sc: 5990, hp: 2 })), true);
+  assert.equal(devisCoherent(prepa({ t: 'prepa', h: 6, acc: true, rf: true, sc: 5990 })), true);
+  assert.equal(devisCoherent(prepa({ t: 'prepa', h: 2, acc: true, rf: false, sc: 5990, hp: 3 })), false);
+  assert.equal(devisCoherent(prepa({ t: 'prepa', h: 2, acc: true, rf: false, sc: 5990, hp: 1.5 })), false);
+});

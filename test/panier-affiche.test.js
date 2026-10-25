@@ -139,10 +139,27 @@ test('changer de formule sous Chèques redessine les prix sous « N chèques »'
   assert.notEqual(zone(s), avant, 'la zone doit être reconstruite : ses prix ont changé');
 });
 
-test('prépa : le total calculé par le CRM s’affiche avant le moyen de paiement', () => {
+test('examen, CRM d’avant le 26/10 : ses lignes s’affichent avant le moyen de paiement', () => {
   const prepa = { lignes: [{ libelle: '4 h de prépa', montantCents: 23960, nature: 'produit' }, { libelle: 'Accompagnement', montantCents: 9900, nature: 'accompagnement' }] };
   const base = { eleve: { prepa }, moyen: null };
-  assert.deepEqual(A.prixCatalogue({ ...base, produit: { type: 'prepa' } }), { libelle: 'Prépa permis', totalCents: 33860, versements: 1 });
-  assert.deepEqual(A.prixCatalogue({ ...base, produit: { type: 'prepa', accompagnementSeul: true } }), { libelle: 'Accompagnement à l’examen', totalCents: 9900, versements: 1 });
+  const tout = A.prixCatalogue({ ...base, produit: { type: 'prepa' } });
+  assert.equal(tout.totalCents, 33860);
+  assert.equal(tout.lignes.length, 2);
+  const seul = A.prixCatalogue({ ...base, produit: { type: 'prepa', accompagnementSeul: true } });
+  assert.deepEqual([seul.libelle, seul.totalCents], ['Accompagnement', 9900]);
   assert.equal(A.prixCatalogue({ eleve: { prepa: { mode: 'rien', lignes: [] } }, produit: { type: 'prepa' } }), null);
+});
+
+test('examen : les lignes suivent les heures saisies et les heures en plus, tout de suite', () => {
+  const prepa = {
+    mode: 'heures', preconisation: { heures: 6, date: '2026-10-24', moniteur: 'Mohamed ABDOU' }, representation: null,
+    heures: { preconisees: 6, stock: 0, disponibles: 0, plancher: 0, max: 30, enPlusMax: 20 },
+    grilleCents: [0, 5990, 11980, 17970, 23960, 29950, 35940, 41930, 47920, 53910, 54900], accompagnementCents: 5990,
+  };
+  const etat = (saisie, enPlus = 0) => ({ eleve: { prepa }, examen: { saisie }, produit: { type: 'prepa', heuresEnPlus: enPlus }, moyen: null });
+  const c = A.prixCatalogue(etat(2));
+  assert.deepEqual(c.lignes.map((l) => [l.libelle, l.montantCents]), [['4 h de préparation à l’examen', 23960], ['Accompagnement à l’examen', 5990]]);
+  assert.equal(c.totalCents, 29950);
+  assert.equal(A.prixCatalogue(etat(6)).totalCents, 5990);
+  assert.equal(A.prixCatalogue(etat(2, 2)).lignes[0].libelle, '6 h de préparation à l’examen, dont 2 h en plus');
 });

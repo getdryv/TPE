@@ -90,6 +90,9 @@ export const chercherEleves = (q, signal) => appel('GET', '/api/students', { que
 /** `EleveCaisse` (§ 10.1). */
 export const eleve = (id) => appel('GET', '/api/caisse/eleve', { query: { id } });
 
+/** Onglet Examen : `{ prepa, avant, apres, trace }` — la fiche mise à jour et l'onglet recalculé. */
+export const heuresDisponibles = (studentId, heures) => appel('POST', '/api/caisse/heures-disponibles', { corps: { studentId, heures } });
+
 /** `{ devis, jeton }` ; corps = `{ studentId, produit, moyen, especesCents? }`. */
 export const devis = (corps, signal) => appel('POST', '/api/caisse/devis', { corps, signal });
 

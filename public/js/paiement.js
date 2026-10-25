@@ -205,7 +205,9 @@ export function resultat(etat, extra) {
   const e = etat.eleve.eleve;
   // Reprise de chèque : la bande dit quel chèque rendre à l'élève.
   const rendus = numerosCoches(etat);
-  return { devis: etat.devis, eleve: nomComplet(e.prenom, e.nom), ...(rendus.length ? { chequesRendus: rendus } : {}), ...extra };
+  // `produit` : la bande en déduit le rappel de facture (aucun pour une reprise de chèque).
+  const produit = etat.produit && etat.produit.type;
+  return { devis: etat.devis, eleve: nomComplet(e.prenom, e.nom), produit, ...(rendus.length ? { chequesRendus: rendus } : {}), ...extra };
 }
 
 /** Envoie au lecteur la part carte du devis en main. */

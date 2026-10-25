@@ -14,6 +14,12 @@ import {
   chequesVides, avecCheques, avecEspeces, versementsMaxProduit, nombreChequesProposes, nombreEffectif,
   demandeCheques, avecNombre, avecPremier, avecAvance, avecMontant,
 } from './etat-cheques.js';
+import {
+  examenPourEleve, ongletInitial, produitExamen, prepaCourante, manqueExamen, produitDevisExamen,
+} from './etat-examen.js';
+import { chequesReprenables } from './etat-reprise.js';
+
+export { chequesReprenables, cocherChequeReprise } from './etat-reprise.js';
 
 export const ONGLETS = ['forfait', 'heures_supp', 'prepa', 'libre', 'reprise'];
 /** Une reprise de chèque se règle en espèces ou par carte (maquette « Reprise de chèque »). */
@@ -32,6 +38,7 @@ function panierVide() {
     comptage: {},         // espèces comptées, { "<centimes>": nombre } (especes-compte.js)
     retourPrestation: false, // « Revenir au choix de la prestation » : les onglets au lieu de la feuille
     cheques: chequesVides(), // nombre, 1er chèque, avances, montants saisis
+    examen: null,         // onglet Examen : saisie des heures disponibles (etat-examen.js)
     version: 0,
     devis: null,          // DevisLisible
     jetonDevis: null,     // seul le jeton fait foi côté serveur
@@ -90,7 +97,9 @@ export function requeteDevis(etat) {
     // Un DRAPEAU, jamais un montant : le CRM ajoute la ligne à son tarif et signe le total.
     if (p.type === 'heures_supp' && etat.accompagnement) produit.accompagnement = true;
   } else if (p.type === 'prepa') {
-    produit = p.accompagnementSeul ? { type: 'prepa', accompagnementSeul: true } : { type: 'prepa' };
+    const manque = manqueExamen(etat);
+    if (manque) return { manque };
+    produit = produitDevisExamen(etat);
   } else if (p.type === 'reprise_cheque') {
     if (!p.chequeIds.length) return { manque: 'cheque' };
     produit = { type: 'reprise_cheque', chequeIds: p.chequeIds.slice() };
@@ -157,9 +166,18 @@ export function identificationRequise(etat, raison, message = null) {
   return { ...etat, ...panierVide(), mode: 'identification_requise', raison: raison || null, message, ecran: 'identification' };
 }
 
-/** L'élève est chargé (EleveCaisse) : nouveau panier, onglet Forfait initial. */
+/**
+ * L'élève est chargé (EleveCaisse) : nouveau panier, onglet Forfait initial —
+ * ou directement l'onglet Examen quand un passage est en jeu et qu'il reste
+ * quelque chose à régler (le CRM le dit : `prepa.ouvrir`).
+ */
 export function eleveCharge(etat, eleveCaisse) {
-  return { ...etat, ...panierVide(), version: etat.version + 1, eleve: eleveCaisse, ecran: 'panier', especesARendre: 0 };
+  const onglet = ongletInitial(eleveCaisse);
+  const produit = onglet === 'prepa' ? produitExamen(eleveCaisse && eleveCaisse.prepa) : null;
+  return {
+    ...etat, ...panierVide(), version: etat.version + 1, eleve: eleveCaisse, ecran: 'panier', especesARendre: 0,
+    onglet, produit, examen: examenPourEleve(eleveCaisse),
+  };
 }
 
 export function changerEleve(etat) {
@@ -167,19 +185,14 @@ export function changerEleve(etat) {
 }
 
 /**
- * Changer d'onglet vide le produit. Seule exception : la prépa, qui n'a pas de
- * tuile à toucher — le CRM a déjà calculé ce qui est dû, le panier le reprend
- * d'office (sauf mode « rien » : rien à encaisser).
+ * Changer d'onglet vide le produit. Seule exception : l'onglet Examen, qui n'a
+ * pas de tuile à toucher — le CRM a déjà calculé ce qui est dû, le panier le
+ * reprend d'office (etat-examen.js).
  */
 export function choisirOnglet(etat, onglet) {
   if (!ONGLETS.includes(onglet) || onglet === etat.onglet) return etat;
   let produit = null;
-  if (onglet === 'prepa') {
-    const prepa = etat.eleve && etat.eleve.prepa;
-    if (prepa && prepa.mode !== 'rien' && !prepa.indisponible) {
-      produit = { type: 'prepa', accompagnementSeul: prepa.mode === 'accompagnement_seul' };
-    }
-  }
+  if (onglet === 'prepa') produit = produitExamen(prepaCourante(etat));
   if (onglet === 'libre') {
     produit = { type: 'libre', montantSaisie: '', note: '' };
   }
@@ -192,22 +205,6 @@ export function choisirOnglet(etat, onglet) {
     changements.moyen = null;
   }
   return panierModifie(etat, changements);
-}
-
-/** Les chèques que l'élève peut reprendre (CRM à jour et migration passée), sinon []. */
-export function chequesReprenables(etat) {
-  const r = etat.eleve && etat.eleve.reprises;
-  return r && Array.isArray(r.cheques) ? r.cheques : [];
-}
-
-/** Onglet « Reprise de chèque » : coche ou décoche un chèque. */
-export function cocherChequeReprise(etat, id) {
-  const p = etat.produit;
-  if (!p || p.type !== 'reprise_cheque' || !chequesReprenables(etat).some((c) => c.id === id)) return etat;
-  const coches = p.chequeIds.includes(id) ? p.chequeIds.filter((x) => x !== id) : [...p.chequeIds, id];
-  // L'ordre de la liste fait foi : le devis et le reçu les citent dans cet ordre.
-  const ordre = chequesReprenables(etat).map((c) => c.id).filter((x) => coches.includes(x));
-  return panierModifie(etat, { produit: { type: 'reprise_cheque', chequeIds: ordre } });
 }
 
 /** Une tuile touchée : forfait ou pack d'heures. */

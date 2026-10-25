@@ -48,6 +48,9 @@ const MANQUE = {
   nombre: 'Choisissez en combien de fois',
   montants: 'Corrigez les montants des chèques',
   cheque: 'Cochez le chèque repris',
+  heures: 'Mise à jour de la fiche…',
+  heures_erreur: 'Corrigez les heures disponibles',
+  rien: 'Rien à régler pour l\'examen',
 };
 
 // Le comptage pas encore juste : le bouton dit ce qui manque (maquettes 01 à 04).
@@ -203,6 +206,7 @@ function lignesDevis(etat, affiche, catalogue) {
   const ligne = (libelle, cents, promo) => el('div', { class: `ligne-panier${promo ? ' ligne-promo' : ''}` },
     el('span', {}, libelle), el('span', {}, eurosCourts(cents)));
   if (affiche.devis) return affiche.devis.lignes.map((l) => ligne(l.libelle, l.montantCents, l.nature === 'promo'));
+  if (catalogue && catalogue.lignes) return catalogue.lignes.map((l) => ligne(l.libelle, l.montantCents, false));
   if (catalogue) return [ligne(catalogue.libelle, catalogue.totalCents, false)];
   const req = requeteDevis(etat);
   if (!req.corps || etat.devisErreur) return [];
@@ -211,7 +215,7 @@ function lignesDevis(etat, affiche, catalogue) {
 
 function texteNote(etat) {
   if (etat.onglet === 'reprise') return noteReprise(etat);
-  if (etat.onglet === 'prepa') return 'Payer ici marque la prépa comme réglée : les relances par e-mail s\'arrêtent, comme avec le lien de paiement.';
+  if (etat.onglet === 'prepa') return 'Payer ici marque l\'examen comme réglé : les relances par e-mail s\'arrêtent, comme avec le lien de paiement.';
   if (etat.onglet === 'heures_supp' && etat.accompagnement) {
     return 'L\'accompagnement payé ici vaut pour le passage en cours : les relances s\'arrêtent, comme avec la prépa.';
   }
@@ -260,7 +264,9 @@ function rendreBoutons(etat, aJour) {
     // Formule en une seule fois après des espèces : aucun nombre ne convient.
     const impossible = req.manque === 'nombre' && chequesProposes(etat) < 1;
     const comptage = req.manque === 'especes' && compteVisible(etat) ? COMPTAGE.vide : null;
-    n.principal.textContent = impossible ? 'Choisissez un autre moyen de paiement' : (comptage || MANQUE[req.manque] || 'Touchez une formule');
+    // Onglet Examen sans rien à encaisser : on le dit plutôt que « Touchez une formule ».
+    const manque = req.manque === 'produit' && etat.onglet === 'prepa' ? 'rien' : req.manque;
+    n.principal.textContent = impossible ? 'Choisissez un autre moyen de paiement' : (comptage || MANQUE[manque] || 'Touchez une formule');
     return;
   }
   if (!aJour) {

@@ -15,6 +15,7 @@ import { devisAJour, nombreCheques } from './etat.js';
 import { avecCheques, avecEspeces } from './etat-cheques.js';
 import { lireMontant, eurosCourts } from './format.js';
 import { designationCheque } from './bordereau-texte.js';
+import { calculExamen } from './etat-examen.js';
 
 /** Les erreurs du CRM qui désignent un champ du panier : affichées sous ce champ. */
 export const CHAMPS_DU_PANIER = ['montants', 'avances', 'premierLe', 'especes'];
@@ -114,8 +115,8 @@ function versementsDuPanier(etat) {
 /**
  * Sans devis pour ce panier : le prix du catalogue (tuile : comptant, ou en
  * plusieurs fois dès que 2 ou 3 versements sont choisis) ou le montant libre
- * saisi, la prépa telle que le CRM l'a calculée, ou les heures + l'accompagnement
- * coché. `{ libelle, totalCents, versements }`, ou null.
+ * saisi, l'onglet Examen (lignes comprises), ou les heures + l'accompagnement
+ * coché. `{ libelle, totalCents, versements, lignes? }`, ou null.
  */
 export function prixCatalogue(etat) {
   const p = etat.produit;
@@ -132,12 +133,11 @@ export function prixCatalogue(etat) {
     return { libelle, totalCents: cheques.reduce((s, c) => s + c.montantCents, 0), versements: 1 };
   }
   if (p.type === 'prepa') {
-    // Le calcul du CRM, reçu avec l'élève (le même que le lien de paiement) : visible avant le moyen.
-    const prepa = etat.eleve && etat.eleve.prepa;
-    if (!prepa || !Array.isArray(prepa.lignes)) return null;
-    const lignes = p.accompagnementSeul ? prepa.lignes.filter((l) => l.nature === 'accompagnement') : prepa.lignes;
-    const total = lignes.reduce((t, l) => t + (Number.isFinite(l.montantCents) ? l.montantCents : 0), 0);
-    return total > 0 ? { libelle: p.accompagnementSeul ? 'Accompagnement à l’examen' : 'Prépa permis', totalCents: total, versements: 1 } : null;
+    // Le calcul de l'onglet Examen (etat-examen.js), ligne par ligne : visible avant le moyen, et suit
+    // aussitôt les heures saisies ; le devis le remplacera.
+    const c = calculExamen(etat);
+    if (!c || !(c.totalCents > 0)) return null;
+    return { libelle: c.lignes.length === 1 ? c.lignes[0].libelle : 'Examen', totalCents: c.totalCents, versements: 1, lignes: c.lignes };
   }
   const tuile = tuileDuProduit(etat.eleve, p);
   if (!tuile) return null;

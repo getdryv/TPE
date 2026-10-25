@@ -100,6 +100,24 @@ export function texteChequesRendus(designations) {
   return designations.length === 1 ? `Rendez-lui le chèque ${designations[0]}` : `Rendez-lui les chèques ${designations.join(', ')}`;
 }
 
+/**
+ * PURE. Le rappel du logiciel de gestion (maquette « Rappel », 26/10) : « À
+ * faire maintenant dans le logiciel de gestion : saisissez la facture de
+ * 299,50 € pour Inès BENALI. » — sans numéro d'encaissement (le logiciel ne
+ * permet pas de le saisir), et jamais le nom du logiciel. Aucun rappel pour
+ * une reprise de chèque (rien de nouveau n'est vendu) ni pour un écart de
+ * montant (rien n'est marqué payé). `{ consigne, texte }`, ou null.
+ */
+export function rappelFacture(r) {
+  if (!r || !r.devis || r.produit === 'reprise_cheque') return null;
+  if (r.declaration && r.declaration.statut === 'ecart') return null;
+  if (!Number.isInteger(r.devis.totalCents) || r.devis.totalCents <= 0) return null;
+  return {
+    consigne: 'À faire maintenant dans le logiciel de gestion :',
+    texte: ` saisissez la facture de ${eurosCourts(r.devis.totalCents)}${r.eleve ? ` pour ${r.eleve}` : ''}.`,
+  };
+}
+
 /** « Réimprimer le bordereau » : le CRM renvoie un DUPLICATA et trace la demande. */
 async function reimprimer(hote, etat) {
   // Chargé à la demande : ce module reste importable sous node (tests des fonctions pures).
@@ -121,6 +139,7 @@ function dessiner(hote, etat) {
   if (genre === 'ok') ico.innerHTML = ICO_OK; // pictogramme constant, sans donnée
   const bordereau = r.declaration && r.declaration.bordereau;
   const rendus = texteChequesRendus(r.chequesRendus);
+  const rappel = rappelFacture(r);
   const avant = [texteRepartition(r.devis), r.eleve].filter(Boolean).join(' · ');
   const apres = [entete.suite, bordereau ? 'Bordereau imprimé' : '', email && email.texte].filter(Boolean).join(' · ');
   const bascule = el('button', {
@@ -138,6 +157,7 @@ function dessiner(hote, etat) {
       el('span', { class: 'grandit' }, el('b', {}, entete.titre), avant ? ` · ${avant}` : '', apres ? ` · ${apres}` : '',
         // Reprise : la consigne à ne pas manquer, sur sa propre ligne.
         rendus ? el('span', { class: 'bloc consigne-rendu' }, rendus) : null,
+        rappel ? el('span', { class: 'bloc consigne-facture' }, el('b', {}, rappel.consigne), rappel.texte) : null,
         messageImpression ? el('span', { class: 'bloc' }, messageImpression) : null),
       reimpression, bascule),
     detailOuvert ? recapitulatif(r, etat.utilisateur) : null);
