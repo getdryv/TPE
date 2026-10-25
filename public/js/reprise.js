@@ -7,7 +7,7 @@
 
 import { el, eurosCourts } from './format.js';
 import { chequesReprenables, cocherChequeReprise } from './etat.js';
-import { jourEtMois } from './bordereau-texte.js';
+import { designationCheque, jourEtMois } from './bordereau-texte.js';
 
 let magasin = null;
 const ICO_COCHE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>';
@@ -25,11 +25,11 @@ export function sousTitreCheque(c) {
 /** PURE. « Chèque n° 0004521 », « Chèque sans numéro ». */
 export const titreCheque = (c) => (c.numero ? `Chèque n° ${c.numero}` : 'Chèque sans numéro');
 
-/** PURE. Les numéros des chèques cochés, dans l'ordre de la liste. */
+/** PURE. Les chèques cochés, désignés (« n° 0004521 », « de 250 € du 15 novembre »), dans l'ordre de la liste. */
 export function numerosCoches(etat) {
   const p = etat.produit;
   if (!p || p.type !== 'reprise_cheque') return [];
-  return chequesReprenables(etat).filter((c) => p.chequeIds.includes(c.id)).map((c) => c.numero || 'sans numéro');
+  return chequesReprenables(etat).filter((c) => p.chequeIds.includes(c.id)).map(designationCheque);
 }
 
 /** PURE. La phrase sous les moyens : ce qui arrivera au(x) chèque(s). */
@@ -37,8 +37,9 @@ export function noteReprise(etat) {
   const numeros = numerosCoches(etat);
   if (!numeros.length) return '';
   const n = numeros.length;
-  const qui = n > 1 ? `les chèques ${numeros.map((x) => `n° ${x}`).join(', ')} passent` : `le chèque n° ${numeros[0]} passe`;
-  return `Une fois encaissé, ${qui} « Rendu à l'élève » et sort${n > 1 ? 'ent' : ''} du prochain dépôt en banque.`;
+  const qui = n > 1 ? `les chèques ${numeros.join(', ')} passent` : `le chèque ${numeros[0]} passe`;
+  // Espaces insécables dans les guillemets : « Rendu à l'élève » ne se coupe jamais à côté d'un guillemet.
+  return `Une fois encaissé, ${qui} «\u00a0Rendu à l'élève\u00a0» et sort${n > 1 ? 'ent' : ''} du prochain dépôt en banque.`;
 }
 
 export function contenuReprise(etat) {

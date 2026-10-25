@@ -61,7 +61,7 @@ function rangeeNombre(etat, proposes, nombre, verrou) {
   return el('div', {},
     el('span', { class: 'etiq', id: 'nbChequesLib' }, 'Payer en combien de fois ?'),
     el('div', { class: 'nb', role: 'group', 'aria-labelledby': 'nbChequesLib', style: `grid-template-columns:repeat(${proposes},minmax(0,1fr))` }, boutons),
-    esp ? el('p', { class: 'sousligne', style: 'margin-top:8px' }, `Les espèces comptent comme 1er versement : ${proposes + 1} versements au plus.`) : null);
+  );
 }
 
 function libellePremier(ech, nombre) {
@@ -147,7 +147,7 @@ function celluleMontant(v, nombre, verrou) {
   }
   const noeud = el('span', { class: 'num' }, eurosCourts(v.amountCents));
   restes.push({ rang: v.rang, noeud });
-  const reste = v.nature === 'cheque' && nombre > 1 ? el('span', { class: 'sousligne bloc' }, 'le reste, calculé') : null;
+  const reste = v.nature === 'cheque' && nombre > 1 ? el('span', { class: 'sousligne bloc' }, 'ajusté au centime') : null;
   return el('td', {}, noeud, reste);
 }
 

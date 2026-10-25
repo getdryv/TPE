@@ -98,7 +98,7 @@ export function rendreCompteur(etat, { reste = null, texteReste = '', erreur = '
       phrase(n.aide, ['Rendez à l\'élève ', { gras: texteRendu(r.pieces) }, ', pris parmi ce qu\'il vous a donné.']);
     } else if (r) {
       phrase(n.aide, [`Impossible de rendre ${eurosCourts(a.trop)} avec ce que l'élève a donné. Rendez-lui `, { gras: texteRendu(r.pieces) },
-        ' et demandez-lui ', { gras: eurosCourts(r.appoint) }, ' en appoint.']);
+        ' et demandez\u2011lui ', { gras: eurosCourts(r.appoint) }, ' en appoint.']);
     } else {
       phrase(n.aide, [`Rendez ${eurosCourts(a.trop)} à l'élève parmi ce qu'il vous a donné, puis corrigez le comptage.`]);
     }

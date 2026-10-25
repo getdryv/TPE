@@ -14,6 +14,7 @@
 import { devisAJour, nombreCheques } from './etat.js';
 import { avecCheques, avecEspeces } from './etat-cheques.js';
 import { lireMontant, eurosCourts } from './format.js';
+import { designationCheque } from './bordereau-texte.js';
 
 /** Les erreurs du CRM qui désignent un champ du panier : affichées sous ce champ. */
 export const CHAMPS_DU_PANIER = ['montants', 'avances', 'premierLe', 'especes'];
@@ -127,7 +128,7 @@ export function prixCatalogue(etat) {
     // Le montant des chèques cochés, tel que le CRM l'a lu (le devis le recalcule).
     const cheques = ((etat.eleve && etat.eleve.reprises && etat.eleve.reprises.cheques) || []).filter((c) => p.chequeIds.includes(c.id));
     if (!cheques.length) return null;
-    const libelle = cheques.length === 1 ? `Reprise du chèque ${cheques[0].numero ? `n° ${cheques[0].numero}` : 'sans numéro'}` : `Reprise de ${cheques.length} chèques`;
+    const libelle = cheques.length === 1 ? `Reprise du chèque ${designationCheque(cheques[0])}` : `Reprise de ${cheques.length} chèques`;
     return { libelle, totalCents: cheques.reduce((s, c) => s + c.montantCents, 0), versements: 1 };
   }
   if (etat.accompagnement) return null; // la ligne d'accompagnement n'a de prix que dans le devis

@@ -97,3 +97,13 @@ kbd {
   .coupure.piece { margin-left: 11px; }
   .in-nb { width: 72px; }
 }
+
+/* Consigne de rendu dans le pied collant : téléphone seulement (le compteur y est hors de vue). */
+.consigne-pied { display: none; margin: 0; color: var(--warn-texte); font-weight: 700; font-size: 15px; }
+@media (max-width: 900px) {
+  .consigne-pied:not(:empty) { display: block; }
+}
+/* Le panier défile au-dessus du pied : la dernière ligne n'y est jamais collée. */
+.panier-corps { padding-bottom: 16px; }
+/* Bande verte d'une reprise : « Rendez-lui le chèque … » sur sa ligne, en grand. */
+.consigne-rendu { font-size: 18px; font-weight: 700; margin-top: 2px; }

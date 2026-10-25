@@ -94,10 +94,10 @@ function recapitulatif(r, utilisateur) {
     boutons.length ? el('div', { class: 'boutons-bande' }, boutons) : null);
 }
 
-/** PURE. « Rendez-lui le chèque n° 0004521 » (reprise de chèque), ou ''. */
-export function texteChequesRendus(numeros) {
-  if (!Array.isArray(numeros) || !numeros.length) return '';
-  return numeros.length === 1 ? `Rendez-lui le chèque n° ${numeros[0]}` : `Rendez-lui les chèques ${numeros.map((x) => `n° ${x}`).join(', ')}`;
+/** PURE. « Rendez-lui le chèque n° 0004521 » (reprise ; désignations de reprise.js), ou ''. */
+export function texteChequesRendus(designations) {
+  if (!Array.isArray(designations) || !designations.length) return '';
+  return designations.length === 1 ? `Rendez-lui le chèque ${designations[0]}` : `Rendez-lui les chèques ${designations.join(', ')}`;
 }
 
 /** « Réimprimer le bordereau » : le CRM renvoie un DUPLICATA et trace la demande. */
@@ -127,13 +127,17 @@ function dessiner(hote, etat) {
     type: 'button', class: 'lien-btn', 'aria-expanded': String(detailOuvert), 'aria-controls': 'detailBande',
     onclick: () => { detailOuvert = !detailOuvert; dessiner(hote, etat); },
   }, detailOuvert ? 'Masquer le détail' : 'Voir le détail');
-  const reimpression = bordereau
+  // Réimprimable dès que l'encaissement est connu et qu'il y avait des espèces, même sans bordereau dans
+  // la réponse (déclaration passée par le webhook, CRM plus lent) : le CRM relit la ligne enregistrée.
+  const encaissementId = r.declaration && r.declaration.encaissementId;
+  const reimpression = encaissementId && (bordereau || (r.devis && r.devis.especesCents > 0))
     ? el('button', { type: 'button', class: 'lien-btn', onclick: () => reimprimer(hote, etat) }, 'Réimprimer le bordereau')
     : null;
   remplir(hote,
     el('div', { class: `bande bande-${genre}`, role: 'status' }, ico,
-      el('span', { class: 'grandit' }, el('b', {}, entete.titre), avant ? ` · ${avant}` : '',
-        rendus ? [' · ', el('b', {}, rendus)] : '', apres ? ` · ${apres}` : '',
+      el('span', { class: 'grandit' }, el('b', {}, entete.titre), avant ? ` · ${avant}` : '', apres ? ` · ${apres}` : '',
+        // Reprise : la consigne à ne pas manquer, sur sa propre ligne.
+        rendus ? el('span', { class: 'bloc consigne-rendu' }, rendus) : null,
         messageImpression ? el('span', { class: 'bloc' }, messageImpression) : null),
       reimpression, bascule),
     detailOuvert ? recapitulatif(r, etat.utilisateur) : null);

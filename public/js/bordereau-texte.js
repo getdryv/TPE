@@ -90,6 +90,18 @@ export function jourEtMois(iso) {
   return m ? `${Number(m[3])} ${MOIS[Number(m[2]) - 1]}` : '';
 }
 
+/**
+ * Ce qui désigne un chèque après « le chèque » : « n° 0004521 », ou, sans
+ * numéro, « de 250 € du 15 novembre » — jamais « n° sans numéro ».
+ */
+export function designationCheque(c) {
+  const numero = String((c && c.numero) || '').trim();
+  if (numero) return `n° ${numero}`;
+  const montant = c && Number.isInteger(c.montantCents) && c.montantCents > 0 ? `de ${eurosCourts(c.montantCents)}` : '';
+  const date = c && c.dueOn ? `du ${jourEtMois(c.dueOn)}` : '';
+  return [montant, date].filter(Boolean).join(' ') || 'sans numéro inscrit';
+}
+
 /** « Billet de 50 € », « Pièce de 0,50 € ». */
 export function libelleLigne(coupureCents) {
   return designation(coupureCents, 1).replace(/^1\u00a0b/, 'B').replace(/^1\u00a0p/, 'P');
@@ -101,11 +113,13 @@ export function libelleLigne(coupureCents) {
  */
 export function encadre(b) {
   if (Array.isArray(b.chequesRendus) && b.chequesRendus.length) {
-    const n = b.chequesRendus.length;
-    const numeros = b.chequesRendus.map((x) => `n° ${x}`).join(', ');
+    // Les désignations du CRM (« n° 0004521 », « de 250 € du 15 novembre ») ; à défaut, les numéros.
+    const textes = Array.isArray(b.chequesRendusTextes) && b.chequesRendusTextes.length
+      ? b.chequesRendusTextes : b.chequesRendus.map((x) => designationCheque({ numero: x }));
+    const n = textes.length;
     return {
       titre: n > 1 ? `Reprise de ${n} chèques` : 'Reprise de chèque',
-      lignes: [`${n > 1 ? 'Chèques' : 'Chèque'} ${numeros} rendu${n > 1 ? 's' : ''} à l'élève, remplacé${n > 1 ? 's' : ''} par ces espèces.`],
+      lignes: [`${n > 1 ? 'Chèques' : 'Chèque'} ${textes.join(', ')} rendu${n > 1 ? 's' : ''} à l'élève, remplacé${n > 1 ? 's' : ''} par ces espèces.`],
     };
   }
   if (b.carteCents > 0 || b.chequesCents > 0) {

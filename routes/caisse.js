@@ -18,7 +18,7 @@ const { exigerJeton } = require('../lib/jeton');
 const { lireDevis, decouperPourMetadonnees, recomposerDepuisMetadonnees, sansCarte } = require('../lib/devis');
 const { sessionCaisse } = require('../lib/session');
 const { lancerEncaissement, capturerSiBesoin } = require('../lib/terminal');
-const { declarerEncaissementCaisse } = require('../lib/declaration');
+const { declarerEncaissementCaisse, heurePaiement } = require('../lib/declaration');
 const { billetageDuDevis, versMetadonnee, depuisMetadonnee } = require('../lib/billetage');
 
 const router = express.Router();
@@ -217,8 +217,8 @@ router.post('/api/caisse/capture', async (req, res) => {
         devis: jetonDevis,
         stripePaymentIntentId: pris.id,
         montantCarteCents: montant,
-        // L'heure de la CAPTURE (ce serveur, maintenant) : c'est l'instant de l'encaissement.
-        paidAt: new Date().toISOString(),
+        // La même heure que le webhook (lib/declaration.js) : deux chemins, une seule heure.
+        paidAt: heurePaiement(pris),
         billetage: depuisMetadonnee(pris.metadata && pris.metadata.billetage),
       },
       { devisId: lecture.devis.id }

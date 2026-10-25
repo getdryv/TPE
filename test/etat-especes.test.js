@@ -112,8 +112,8 @@ test('reprise : onglet seulement avec des chèques ; espèces ou carte ; devis p
   assert.equal(m.appliquer(E.choisirMoyen, 'mixte').moyen, null, 'pas de mélange');
   m.appliquer(E.choisirMoyen, 'especes');
   assert.deepEqual(E.requeteDevis(m.lire()).corps, { studentId: 'e1', produit: { type: 'reprise_cheque', chequeIds: ['c1', 'c2'] }, moyen: 'especes' });
-  assert.deepEqual(R.numerosCoches(m.lire()), ['0004521', '0004522']);
-  assert.match(R.noteReprise(m.lire()), /les chèques n° 0004521, n° 0004522 passent « Rendu à l'élève » et sortent du prochain dépôt/);
+  assert.deepEqual(R.numerosCoches(m.lire()), ['n° 0004521', 'n° 0004522']);
+  assert.match(R.noteReprise(m.lire()), /les chèques n° 0004521, n° 0004522 passent «\u00a0Rendu à l'élève\u00a0» et sortent du prochain dépôt/);
   assert.equal(R.sousTitreCheque(CHEQUES[0]), 'À déposer le 15 novembre · forfait Permis B, versement 2 sur 3');
   m.appliquer(E.cocherChequeReprise, 'c2');
   assert.deepEqual(m.lire().produit.chequeIds, ['c1']);
@@ -128,4 +128,17 @@ test('devis pas encore arrivé : jamais « juste » à tort, et le bouton reste 
   assert.equal(X.comptageAccepte(m.lire()), false, 'sans devis à jour, rien ne part');
   m.appliquer(X.ajouterCoupure, 1000);
   assert.equal(X.analyseEspeces(m.lire()).statut, 'trop');
+});
+
+test('jamais « n° sans numéro » : le chèque de 250 € du 15 novembre', async () => {
+  const T = await importerPublic('bordereau-texte.js');
+  const B = await importerPublic('bande.js');
+  const net = (t) => t.replace(/[\u00a0\u202f]/g, ' ');
+  assert.equal(T.designationCheque({ numero: '0004521' }), 'n° 0004521');
+  assert.equal(net(T.designationCheque({ numero: null, montantCents: 25000, dueOn: '2026-11-15' })), 'de 250 € du 15 novembre');
+  assert.equal(net(B.texteChequesRendus([T.designationCheque({ numero: '', montantCents: 25000, dueOn: '2026-11-15' })])), 'Rendez-lui le chèque de 250 € du 15 novembre');
+  const e = T.encadre({ especesCents: 25000, carteCents: 0, chequesCents: 0, chequesRendus: [''], chequesRendusTextes: ['de 250\u00a0€ du 15 novembre'] });
+  assert.equal(net(e.lignes[0]), 'Chèque de 250 € du 15 novembre rendu à l\'élève, remplacé par ces espèces.');
+  assert.ok(!T.encadre({ especesCents: 25000, carteCents: 0, chequesCents: 0, chequesRendus: [''] }).lignes[0].includes('n° sans'));
+  assert.match(K.texteRendu({ 5000: 1 }), /billet/);
 });

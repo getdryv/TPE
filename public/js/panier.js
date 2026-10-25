@@ -22,7 +22,7 @@ import {
   basculerSecours, identificationRequise, nombreCheques, chequesProposes, MOYENS_REPRISE,
 } from './etat.js';
 import { analyseEspeces, compteVisible, comptageAccepte } from './etat-especes.js';
-import { construireCompteur, rendreCompteur } from './compteur-especes.js';
+import { construireCompteur, rendreCompteur, texteRendu } from './compteur-especes.js';
 import { noteReprise } from './reprise.js';
 import { avecCheques } from './etat-cheques.js';
 import { envoyerCarte, annulerPaiement, lecteurPret, raisonLecteurActuel } from './paiement.js';
@@ -126,13 +126,15 @@ function construire() {
   n.zoneCheques = el('div', { class: 'zone-cheques' });
   n.erreur = el('div', { class: 'encart encart-erreur', role: 'alert' });
   n.statut = el('div', { class: 'statut', role: 'status' });
+  // Sur téléphone, le compteur est hors de vue : la consigne de rendu monte dans le pied collant.
+  n.consignePied = el('p', { class: 'consigne-pied', 'aria-hidden': 'true' });
   n.principal = el('button', { type: 'button', class: 'btn btnp', onclick: agir });
   n.secondaire = el('button', { type: 'button', class: 'btn', onclick: secondaire });
 
   n.totalBarre = el('span', {}, '—');
   n.action = el('div', { class: 'panier-action' },
     el('div', { class: 'barre-total', 'aria-hidden': 'true' }, el('span', {}, 'Total'), n.totalBarre),
-    n.erreur, n.statut, n.principal, n.secondaire);
+    n.erreur, n.statut, n.consignePied, n.principal, n.secondaire);
 
   // Le corps défile, la barre d'action jamais : le bouton de validation reste
   // à l'écran (colonne collante sur ordinateur, barre fixe en bas sur mobile).
@@ -237,6 +239,9 @@ function libelleAction(etat) {
 }
 
 function rendreBoutons(etat, aJour) {
+  const a = compteVisible(etat) ? analyseEspeces(etat) : null;
+  n.consignePied.textContent = a && a.statut === 'trop' && a.rendre
+    ? `Rendez ${texteRendu(a.rendre.pieces)}${a.rendre.appoint ? `, puis demandez ${eurosCourts(a.rendre.appoint)} d'appoint` : ''}` : '';
   n.secondaire.hidden = true;
   n.statut.textContent = '';
   if (etat.paiement) {
