@@ -27,6 +27,7 @@
 .b-boite-l span:first-child { font-size: 1.08em; font-weight: 700; }
 .b-boite-l span:last-child { font-size: 2.15em; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .b-lettres { font-style: italic; }
+.b-arrondi { font-weight: 700; }
 .b-coupures { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .b-coupures th { text-align: left; font-size: .92em; border-bottom: 1.5px solid #000; padding: 5px 0; }
 .b-coupures td { padding: 6px 0; border-bottom: 1px solid #999; }

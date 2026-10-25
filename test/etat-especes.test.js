@@ -142,3 +142,27 @@ test('jamais « n° sans numéro » : le chèque de 250 € du 15 novembre', asy
   assert.ok(!T.encadre({ especesCents: 25000, carteCents: 0, chequesCents: 0, chequesRendus: [''] }).lignes[0].includes('n° sans'));
   assert.match(K.texteRendu({ 5000: 1 }), /billet/);
 });
+
+test('arrondi : 60 € pour 59,90 € dans la tolérance de l’agence, encaissable sans rien rendre', async () => {
+  const C = await importerPublic('especes-compte.js');
+  const T = await importerPublic('bordereau-texte.js');
+  const net = (t) => t.replace(/[  ]/g, ' ');
+  assert.deepEqual(C.analyser({ 5000: 1, 1000: 1 }, 5990, 100), { compte: 6000, statut: 'arrondi', manque: 0, trop: 0, arrondi: 10, rendre: null });
+  assert.equal(C.analyser({ 5000: 1, 1000: 1 }, 5990, 0).statut, 'trop', '0 = désactivé');
+  assert.equal(C.analyser({ 5000: 1, 2000: 1 }, 5990, 100).statut, 'trop', '10,10 € de trop : au-delà, on rend');
+  const m = E.creerMagasin();
+  m.appliquer(E.sessionOuverte, { mode: 'catalogue', utilisateur: { nom: 'Sarah', role: 'secretary' } }, true);
+  m.appliquer(E.eleveCharge, { ...eleve(false), especes: { toleranceArrondiCents: 100 }, cascade: { forfaits: [{ ...TUILE, prixCents: 5990 }], indices: {} } });
+  m.appliquer(E.choisirFormule, 'forfait', 'b20');
+  m.appliquer(E.choisirMoyen, 'especes');
+  devis(m, { totalCents: 5990, especesCents: 5990, carteCents: 0, moyen: 'especes' });
+  m.appliquer(X.saisirCoupure, 5000, 1);
+  m.appliquer(X.saisirCoupure, 1000, 1);
+  assert.equal(X.comptageAccepte(m.lire()), true);
+  assert.equal(net(K.texteArrondi(X.analyseEspeces(m.lire()).arrondi)), '0,10 € d\'arrondi laissé par l\'élève');
+  m.appliquer(E.choisirMoyen, 'mixte');
+  assert.equal(X.toleranceArrondi(m.lire()), 0, 'un mixte fixe sa part au centime');
+  const env = T.enveloppe({ especesCents: 5990, arrondiCents: 10, especesRecuesCents: 6000 });
+  assert.deepEqual([env.libelle, env.cents, net(env.detail)], ['Espèces dans cette enveloppe', 6000, 'dont 0,10 € d\'arrondi laissé par l\'élève · Montant encaissé : 59,90 €']);
+  assert.equal(T.enveloppe({ especesCents: 5990 }).detail, null);
+});

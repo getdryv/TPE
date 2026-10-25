@@ -19,7 +19,7 @@ const { lireDevis, decouperPourMetadonnees, recomposerDepuisMetadonnees, sansCar
 const { sessionCaisse } = require('../lib/session');
 const { lancerEncaissement, capturerSiBesoin } = require('../lib/terminal');
 const { declarerEncaissementCaisse, heurePaiement } = require('../lib/declaration');
-const { billetageDuDevis, versMetadonnee, depuisMetadonnee } = require('../lib/billetage');
+const { ARRONDI_MAX, billetageDuDevis, versMetadonnee, depuisMetadonnee } = require('../lib/billetage');
 
 const router = express.Router();
 
@@ -257,8 +257,9 @@ router.post('/api/caisse/especes', async (req, res) => {
   if (!sansCarte(devis)) {
     return res.status(400).json({ error: "Ce devis comporte une part carte : passez par le lecteur.", code: 'devis_avec_carte' });
   }
-  // Le détail des espèces comptées : la somme doit tomber pile sur la part espèces signée.
-  const billetage = billetageDuDevis(req.body?.billetage, devis.esp);
+  // Le détail des espèces comptées : pile sur la part espèces signée, ou (espèces seules) un arrondi
+  // laissé par l'élève ; le CRM le borne à la tolérance de l'agence.
+  const billetage = billetageDuDevis(req.body?.billetage, devis.esp, devis.mo === 'especes' ? ARRONDI_MAX : 0);
   if (!billetage.ok) return res.status(400).json({ error: billetage.message, code: 'billetage_invalide' });
 
   // L'heure n'est pas envoyée : sans carte, le CRM horodate lui-même (heure de son serveur).

@@ -31,3 +31,10 @@ test('devis de reprise de chèque : espèces ou carte, jamais un mélange', () =
   assert.equal(devisCoherent({ ...base, tot: 25000, cb: 15000, esp: 10000, mo: 'mixte' }), false);
   assert.equal(devisCoherent({ ...base, p: { t: 'reprise_cheque', c: [] }, tot: 25000, cb: 0, esp: 25000, mo: 'especes' }), false);
 });
+
+test('arrondi : le serveur accepte un surplus jusqu’à la borne donnée, jamais un manque', () => {
+  assert.equal(billetageDuDevis({ 5000: 1, 1000: 1 }, 5990, 500).ok, true);
+  assert.equal(billetageDuDevis({ 5000: 1, 1000: 1 }, 5990, 0).ok, false, 'mixte : pile');
+  assert.equal(billetageDuDevis({ 5000: 1 }, 5990, 500).ok, false, 'il manque');
+  assert.equal(billetageDuDevis({ 10000: 1 }, 5990, 500).ok, false, '40,10 € de trop');
+});

@@ -109,19 +109,25 @@ export function aRendre(comptage, exces) {
 
 /**
  * Où en est le compte par rapport à `cible` (la part en espèces) :
- *   { compte, statut: 'vide' | 'manque' | 'juste' | 'trop', manque, trop,
- *     rendre: { pieces, appoint } | null }
+ *   { compte, statut: 'vide' | 'manque' | 'juste' | 'arrondi' | 'trop', manque, trop,
+ *     rendre: { pieces, appoint } | null, arrondi? }
+ * `tolerance` (centimes, réglage d'agence) : un surplus jusque-là est un
+ * ARRONDI laissé par l'élève (`arrondi`), encaissable sans rien rendre.
  * `appoint` > 0 : rien ne tombe juste ; rendre `pieces` et demander l'appoint.
  * Sans cible (paiement mixte : c'est le comptage qui FIXE la part espèces),
  * le statut est 'vide' ou 'juste'.
  */
-export function analyser(comptage, cible) {
+export function analyser(comptage, cible, tolerance = 0) {
   const compte = totalCompte(comptage);
   if (compte === 0) return { compte, statut: 'vide', manque: cible || 0, trop: 0, rendre: null };
   if (!Number.isInteger(cible) || cible <= 0) return { compte, statut: 'juste', manque: 0, trop: 0, rendre: null };
   if (compte < cible) return { compte, statut: 'manque', manque: cible - compte, trop: 0, rendre: null };
   if (compte === cible) return { compte, statut: 'juste', manque: 0, trop: 0, rendre: null };
   const trop = compte - cible;
+  // L'élève a arrondi (60 € pour 59,90 €) dans la tolérance de l'agence : on ne rend pas la monnaie.
+  if (Number.isInteger(tolerance) && tolerance > 0 && trop <= tolerance) {
+    return { compte, statut: 'arrondi', manque: 0, trop: 0, arrondi: trop, rendre: null };
+  }
   const r = aRendre(comptage, trop);
   return { compte, statut: 'trop', manque: 0, trop, rendre: r ? { pieces: r.pieces, appoint: r.somme - trop } : null };
 }

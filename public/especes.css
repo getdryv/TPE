@@ -107,3 +107,8 @@ kbd {
 .panier-corps { padding-bottom: 16px; }
 /* Bande verte d'une reprise : « Rendez-lui le chèque … » sur sa ligne, en grand. */
 .consigne-rendu { font-size: 18px; font-weight: 700; margin-top: 2px; }
+
+/* Arrondi laissé par l'élève (dans la tolérance de l'agence) : neutre, jamais une alerte. */
+.etat-arrondi { color: var(--texte); }
+.arrondi-pied { margin: 0; font-size: 15px; font-weight: 600; color: var(--texte); }
+.arrondi-pied:empty { display: none; }

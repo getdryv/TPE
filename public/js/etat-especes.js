@@ -37,12 +37,22 @@ export function cibleEspeces(etat) {
 }
 
 /**
+ * L'arrondi accepté sans rendre la monnaie (réglage d'agence, CRM à jour) :
+ * espèces SEULES ; un mixte fixe sa part au centime. CRM plus ancien : 0.
+ */
+export function toleranceArrondi(etat) {
+  if (etat.moyen !== 'especes') return 0;
+  const t = etat.eleve && etat.eleve.especes && etat.eleve.especes.toleranceArrondiCents;
+  return Number.isInteger(t) && t > 0 ? Math.min(t, 500) : 0;
+}
+
+/**
  * Où en est le compte (especes-compte.js `analyser`), d'après l'état. Espèces
  * seules sans aucun prix connu (prépa dont le devis arrive) : `attente`.
  */
 export function analyseEspeces(etat) {
   const cible = cibleEspeces(etat);
-  const a = analyser(etat.comptage || {}, cible);
+  const a = analyser(etat.comptage || {}, cible, toleranceArrondi(etat));
   if (etat.moyen === 'especes' && cible === null && a.statut !== 'vide') return { ...a, statut: 'attente' };
   return a;
 }
@@ -55,7 +65,7 @@ export function comptageAccepte(etat) {
   if (!compteVisible(etat)) return true;
   const a = analyseEspeces(etat);
   // Le bouton ne s'ouvre que sur le total du DEVIS (jamais sur le prix indicatif de la tuile).
-  if (etat.moyen === 'especes') return devisAJour(etat) && a.statut === 'juste';
+  if (etat.moyen === 'especes') return devisAJour(etat) && (a.statut === 'juste' || a.statut === 'arrondi');
   return a.compte > 0;
 }
 

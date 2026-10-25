@@ -32,6 +32,9 @@ export function libelleRendu(pieces) {
   return 'C\'est rendu';
 }
 
+/** PURE. « 0,10 € d'arrondi laissé par l'élève ». */
+export const texteArrondi = (cents) => `${eurosCourts(cents)} d'arrondi laissé par l'élève`;
+
 export function construireCompteur(m) {
   magasin = m;
   n.valeur = el('span', { class: 'compteur-val' }, '0 €');
@@ -83,6 +86,10 @@ export function rendreCompteur(etat, { reste = null, texteReste = '', erreur = '
   } else if (a.statut === 'manque') {
     n.etat.classList.add('etat-manque');
     poser(n.etat, `Il manque ${eurosCourts(a.manque)}`);
+  } else if (a.statut === 'arrondi') {
+    // Neutre, pas une erreur : l'élève a arrondi, on ne rend pas la monnaie.
+    n.etat.classList.add('etat-arrondi');
+    poser(n.etat, texteArrondi(a.arrondi));
   } else if (a.statut === 'juste') {
     n.boite.classList.add('juste');
     n.etat.classList.add('etat-juste');

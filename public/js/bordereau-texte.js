@@ -5,7 +5,7 @@
 // à la seconde, l'encadré d'un paiement mixte ou d'une reprise de chèque.
 // Aucun accès au DOM ni au réseau : ce module se teste sous node.
 
-import { eurosCourts } from './format.js';
+import { euros, eurosCourts } from './format.js';
 import { designation } from './especes-compte.js';
 
 const UNITES = ['zéro', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix',
@@ -138,3 +138,20 @@ export function encadre(b) {
 
 /** Le nombre total de billets et de pièces. */
 export const nombreDeCoupures = (coupures) => (coupures || []).reduce((s, c) => s + c.nombre, 0);
+
+/**
+ * L'encadré du montant : ce qu'il y a dans l'enveloppe. Avec un arrondi laissé
+ * par l'élève (on ne rend pas la monnaie), l'enveloppe contient le prix PLUS
+ * l'arrondi, et le montant encaissé reste le prix.
+ * `{ libelle, cents, detail }` (detail : null sans arrondi).
+ */
+export function enveloppe(b) {
+  const arrondi = Number.isInteger(b.arrondiCents) && b.arrondiCents > 0 ? b.arrondiCents : 0;
+  if (!arrondi) return { libelle: 'Espèces jointes à ce bordereau', cents: b.especesCents, detail: null };
+  const recues = Number.isInteger(b.especesRecuesCents) ? b.especesRecuesCents : b.especesCents + arrondi;
+  return {
+    libelle: 'Espèces dans cette enveloppe',
+    cents: recues,
+    detail: `dont ${euros(arrondi)} d'arrondi laissé par l'élève · Montant encaissé : ${euros(b.especesCents)}`,
+  };
+}

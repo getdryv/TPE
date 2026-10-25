@@ -11,8 +11,8 @@
 // Tout vient des données du CRM (`declaration.bordereau`) ; les phrases de
 // bordereau-texte.js. Le format (A5 par défaut, A4) est un réglage d'agence.
 
-import { el, remplir, eurosCourts } from './format.js';
-import { dateHeure, encadre, libelleLigne, montantEnLettres, nombreDeCoupures } from './bordereau-texte.js';
+import { el, remplir, euros, eurosCourts } from './format.js';
+import { dateHeure, encadre, enveloppe, libelleLigne, montantEnLettres, nombreDeCoupures } from './bordereau-texte.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -21,6 +21,7 @@ export function documentBordereau(b, reimpression = null) {
   const lignes = (b.coupures || []).map((c) => el('tr', {},
     el('td', {}, libelleLigne(c.coupureCents)), el('td', {}, String(c.nombre)), el('td', {}, eurosCourts(c.montantCents))));
   const cadre = encadre(b);
+  const env = enveloppe(b);
   const infos = [['Date', dateHeure(b.encaisseLe)], ['Élève', b.eleve], ['Prestation', b.prestation], ['Encaissé par', b.encaissePar]];
   return el('article', { class: `bordereau format-${b.format === 'A4' ? 'A4' : 'A5'}` },
     el('header', { class: 'b-haut' },
@@ -29,13 +30,14 @@ export function documentBordereau(b, reimpression = null) {
     el('div', { class: 'b-titre' }, el('h1', {}, 'BORDEREAU D\'ESPÈCES'), b.duplicata ? el('span', { class: 'b-duplicata' }, 'DUPLICATA') : null),
     el('dl', { class: 'b-infos' }, infos.flatMap(([dt, dd]) => [el('dt', {}, dt), el('dd', {}, dd)])),
     el('div', { class: 'b-boite' },
-      el('div', { class: 'b-boite-l' }, el('span', {}, 'Espèces jointes à ce bordereau'), el('span', {}, eurosCourts(b.especesCents))),
-      el('div', { class: 'b-lettres' }, montantEnLettres(b.especesCents))),
+      el('div', { class: 'b-boite-l' }, el('span', {}, env.libelle), el('span', {}, env.detail ? euros(env.cents) : eurosCourts(env.cents))),
+      el('div', { class: 'b-lettres' }, montantEnLettres(env.cents)),
+      env.detail ? el('div', { class: 'b-arrondi' }, env.detail) : null),
     lignes.length
       ? el('table', { class: 'b-coupures' },
         el('thead', {}, el('tr', {}, el('th', {}, 'Billets et pièces'), el('th', {}, 'Nombre'), el('th', {}, 'Montant'))),
         el('tbody', {}, lignes),
-        el('tfoot', {}, el('tr', {}, el('td', {}, 'Total'), el('td', {}, String(nombreDeCoupures(b.coupures))), el('td', {}, eurosCourts(b.especesCents)))))
+        el('tfoot', {}, el('tr', {}, el('td', {}, 'Total'), el('td', {}, String(nombreDeCoupures(b.coupures))), el('td', {}, eurosCourts(env.cents)))))
       : el('p', { class: 'b-sans-detail' }, 'Détail des billets et des pièces non enregistré.'),
     cadre ? el('div', { class: 'b-autre' }, el('b', {}, cadre.titre), cadre.lignes.map((t) => el('span', { class: 'bloc' }, t))) : null,
     el('footer', { class: 'b-pied' },
