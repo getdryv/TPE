@@ -138,3 +138,11 @@ test('changer de formule sous Chèques redessine les prix sous « N chèques »'
   assert.deepEqual(A.sousNombres(s, 3).map((t) => t.replace(/\s/g, ' ')), ['1 chèque de 1 499 €', '2 chèques · total 1 599 €', '3 chèques · total 1 599 €']);
   assert.notEqual(zone(s), avant, 'la zone doit être reconstruite : ses prix ont changé');
 });
+
+test('prépa : le total calculé par le CRM s’affiche avant le moyen de paiement', () => {
+  const prepa = { lignes: [{ libelle: '4 h de prépa', montantCents: 23960, nature: 'produit' }, { libelle: 'Accompagnement', montantCents: 9900, nature: 'accompagnement' }] };
+  const base = { eleve: { prepa }, moyen: null };
+  assert.deepEqual(A.prixCatalogue({ ...base, produit: { type: 'prepa' } }), { libelle: 'Prépa permis', totalCents: 33860, versements: 1 });
+  assert.deepEqual(A.prixCatalogue({ ...base, produit: { type: 'prepa', accompagnementSeul: true } }), { libelle: 'Accompagnement à l’examen', totalCents: 9900, versements: 1 });
+  assert.equal(A.prixCatalogue({ eleve: { prepa: { mode: 'rien', lignes: [] } }, produit: { type: 'prepa' } }), null);
+});
