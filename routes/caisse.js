@@ -65,7 +65,8 @@ router.get('/api/caisse/session', async (req, res) => {
  */
 function demandeCheques(brut) {
   if (!brut || typeof brut !== 'object') return undefined;
-  const liste = (v) => (Array.isArray(v) ? v.slice(0, 3) : undefined);
+  // 24 = VERSEMENTS_MAX du CRM (echeancier.ts) : le réglage décide, pas la caisse.
+  const liste = (v) => (Array.isArray(v) ? v.slice(0, 24) : undefined);
   const demande = { nombre: brut.nombre };
   if (brut.premierLe !== undefined) demande.premierLe = brut.premierLe;
   if (liste(brut.avances)) demande.avances = liste(brut.avances);

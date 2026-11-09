@@ -154,13 +154,25 @@ test('devis : les choix de chèques sont relayés, et eux seuls', async () => {
   reponseCrm = () => ({ status: 200, body: { ok: true, data: { devis: { totalCents: 176000 }, jeton: 'j' } } });
   const r = await poster('/api/caisse/devis', {
     studentId: 's1', produit: { type: 'forfait', formuleId: 'f1' }, moyen: 'cheques',
-    cheques: { nombre: 3, premierLe: '2026-10-22', avances: [null, '2026-11-10', null, 'trop'], montantsCents: [80000, null], prixCents: 1, intrus: true },
+    cheques: { nombre: 4, premierLe: '2026-10-22', avances: [null, '2026-11-10', null, '2027-01-11'], montantsCents: [80000, null, null], prixCents: 1, intrus: true },
   });
   assert.equal(r.status, 200);
   const corps = recus.find((x) => x.chemin === '/api/internal/caisse/devis').corps;
-  assert.deepEqual(corps.cheques, { nombre: 3, premierLe: '2026-10-22', avances: [null, '2026-11-10', null], montantsCents: [80000, null] });
+  // 4 chèques (bug du 09/11) : la 4e avance n'est plus coupée.
+  assert.deepEqual(corps.cheques, { nombre: 4, premierLe: '2026-10-22', avances: [null, '2026-11-10', null, '2027-01-11'], montantsCents: [80000, null, null] });
   assert.equal(corps.moyen, 'cheques');
   assert.equal(typeof corps.jeton, 'string');
+});
+
+test('devis : les listes de chèques sont bornées à 24 (plafond du CRM)', async () => {
+  reponseCrm = () => ({ status: 200, body: { ok: true, data: { devis: { totalCents: 176000 }, jeton: 'j' } } });
+  await poster('/api/caisse/devis', {
+    studentId: 's1', produit: { type: 'forfait', formuleId: 'f1' }, moyen: 'cheques',
+    cheques: { nombre: 24, avances: new Array(30).fill(null), montantsCents: new Array(30).fill(null) },
+  });
+  const corps = recus.find((x) => x.chemin === '/api/internal/caisse/devis').corps;
+  assert.equal(corps.cheques.avances.length, 24);
+  assert.equal(corps.cheques.montantsCents.length, 24);
 });
 
 test('devis carte : aucune clé chèques ajoutée (corps d\'avant)', async () => {
